@@ -1,0 +1,118 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+*.dylib
+
+# Distribution / packaging
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/
+pip-wheel-metadata/
+.tox/
+.pytest_cache/
+.egg-info/
+_build/
+debian/
+*.egg-info/
+*.whl
+*.pth
+.env
+*.env
+.virtualenv/
+__pypackages__/
+*.dSYM
+*.dist-info/
+*.metadata
+*.cpython-*.opt-*.so
+*.pyd
+
+# OS or Editor-specific files
+.DS_Store
+.Thumbs.db
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.tmp
+*.bak
+*.swp
+*.swo
+*.log
+*.DS_Store?
+*._*
+.LSOverride
+*.󠁬*
+*.ini
+*.hprof
+*.orig
+*.py~
+*.db
+*.sqlite
+*.sqlite3
+*.lock
+*.pflb
+*.ipynb_checkpoints/
+
+# IDE - VSCode
+.vscode/
+
+# IDE - IntelliJ
+.idea/
+
+# Data and logs
+data/
+logs/
+tmp/
+temp/
+
+# Environments
+.env
+venv
+env
+.virtualenv
+*/site-packages
+
+# node_modules
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Ignore coverage reports
+coverage/
+*.coverage
+.coverage
+htmlcov/
+.nyc_output/
+.pytest_cache
+
+# mypy cache
+.mypy_cache/
+.dmypy.json
+dmypy.sock
+
+# Environments
+.env
+venv
+env
+.virtualenv
+*/site-packages
+```
