@@ -115,4 +115,5 @@ venv
 env
 .virtualenv
 */site-packages
+/data/*
 ```
