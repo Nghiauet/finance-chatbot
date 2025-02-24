@@ -33,7 +33,8 @@ class LLMService:
     def generate_content(self, 
                          prompt: str, 
                          file_path: Optional[str] = None, 
-                         generation_config: Optional[Dict[str, Any]] = None) -> Optional[str]:
+                         generation_config: Optional[Dict[str, Any]] = None,
+                         system_instruction: Optional[str] = None) -> Optional[str]:
         """
         Generate content using the Gemini model.
         
@@ -41,6 +42,7 @@ class LLMService:
             prompt: The text prompt to send to the model
             file_path: Optional path to a file to include with the prompt
             generation_config: Optional configuration parameters for generation
+            system_instruction: Optional system instruction for the model
             
         Returns:
             Generated text or None if generation failed
@@ -54,17 +56,23 @@ class LLMService:
                 contents.append(file_obj)
             
             # Set default generation config if not provided
-            if generation_config is None:
-                generation_config = {
-                    "temperature": 0.2,
-                    "top_p": 0.95,
-                    "top_k": 40,
-                }
+            # if generation_config is None:
+            #     generation_config = {
+            #         "temperature": 0.2,
+            #         "top_p": 0.95,
+            #         "top_k": 40,
+            #     }
+            
+            # Create generate content config with system instruction if provided
+            config = types.GenerateContentConfig()
+            if system_instruction:
+                config.system_instruction = system_instruction
             
             # Generate content
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=contents,
+                config=config
             )
             
             return response.text if response.text else None
@@ -72,34 +80,6 @@ class LLMService:
         except Exception as e:
             logger.error(f"Error generating content: {str(e)}")
             return None
-    
-    def batch_generate(self, 
-                       prompts: List[str], 
-                       file_paths: Optional[List[str]] = None) -> List[Optional[str]]:
-        """
-        Generate content for multiple prompts.
-        
-        Args:
-            prompts: List of text prompts
-            file_paths: Optional list of file paths (must match length of prompts if provided)
-            
-        Returns:
-            List of generated texts or None for failed generations
-        """
-        results = []
-        
-        # Validate inputs
-        if file_paths and len(prompts) != len(file_paths):
-            logger.error("Number of prompts must match number of file paths")
-            return [None] * len(prompts)
-        
-        # Process each prompt
-        for i, prompt in enumerate(prompts):
-            file_path = file_paths[i] if file_paths else None
-            result = self.generate_content(prompt, file_path)
-            results.append(result)
-            
-        return results
 
 
 # Singleton instance for easy import

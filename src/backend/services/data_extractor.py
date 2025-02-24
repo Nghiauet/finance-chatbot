@@ -94,12 +94,12 @@ def get_next_version(base_path: str) -> int:
     return max(versions) + 1 if versions else 1
 
 
-def get_extraction_prompt() -> str:
+def get_extraction_system_instruction() -> str:
     """
-    Get the prompt for Gemini AI text extraction.
+    Get the system instruction for Gemini AI text extraction.
     
     Returns:
-        Formatted prompt string
+        Formatted system instruction string
     """
     return """
 # PDF Content Extraction Instructions
@@ -107,10 +107,10 @@ def get_extraction_prompt() -> str:
 Extract and convert the complete content of this PDF document following these specifications:
 
 ## Content Requirements
-- Extract all text content including headers, paragraphs, footnotes, and captions
+- Carefully extract all text content including headers, paragraphs, footnotes, and captions
 - Convert all tables to markdown format using | for columns and - for header separation
 - Provide brief descriptions for non-text elements (images, charts, graphs) in [brackets]
-- Maintain the original document hierarchy and section organization
+- Extract the original document hierarchy and section organization
 
 ## Formatting Rules
 - Use ATX-style headers with a single space after # (e.g., # Heading 1)
@@ -126,9 +126,17 @@ Extract and convert the complete content of this PDF document following these sp
 - Convert the content exactly as presented without additional commentary
 - Maintain the original document structure and flow
 - Do not add explanatory text or processing notes
-
-[Begin PDF content below this line]
 """
+
+
+def get_extraction_prompt() -> str:
+    """
+    Get the user prompt for Gemini AI text extraction.
+    
+    Returns:
+        Formatted user prompt string
+    """
+    return "Extract and convert the complete content of this PDF document to markdown format."
 
 
 def extract_text_from_pdf(file_path: str) -> Optional[str]:
@@ -174,7 +182,8 @@ def extract_text_from_pdf(file_path: str) -> Optional[str]:
                     # Use LLM service to process the page
                     response = llm_service.generate_content(
                         prompt=get_extraction_prompt(),
-                        file_path=temp_file.name
+                        file_path=temp_file.name,
+                        system_instruction=get_extraction_system_instruction()
                     )
                     
                     # Add extracted text
