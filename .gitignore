@@ -116,4 +116,5 @@ env
 .virtualenv
 */site-packages
 /data/*
+/archived/*
 ```
