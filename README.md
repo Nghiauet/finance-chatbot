@@ -12,7 +12,7 @@ An AI-powered finance chatbot that processes financial reports and provides auto
 
 ## Project Structure
 
-
+```
 src/
 ├── backend/
 │   ├── api/v1/
@@ -36,7 +36,8 @@ src/
 │   │   │   └── pdf_parsing.py
 │   ├── core/                     # Shared utilities (config, security)
 │   └── main.py                   # App entrypoint
-
+```
+```
 User uploads a PDF financial statement:
 ⬇️
 PDF is processed by your backend service:
@@ -48,8 +49,9 @@ User interacts via chatbot API, asking for insights:
 AI retrieves data, analyzes, and returns a clear, conversational response:
 ⬇️
 User views the AI-generated insights or extracts structured data through API calls.
-
-
+```     
+### Prompt:
+```
 You are an expert financial analyst. Perform a fundamental analysis on the provided financial data for {{company_name}} (Ticker: {{ticker}}) as of {{report_date}}.
 
 Here is the financial information and calculated metrics:
@@ -67,12 +69,14 @@ Calculated Metrics:
 - Dividend Yield (%): {{calculated_metrics.dividend_yield}}
 - Debt-to-Equity Ratio: {{calculated_metrics.debt_equity_ratio}}
 - Return on Equity (ROE) (%): {{calculated_metrics.roe}}
-
+```
 **Analysis Task:**
 1. Briefly explain the meaning and implications of each calculated metric.
 2. Provide your insights about the company's financial health and investment attractiveness based on these metrics.
 3. Clearly state any potential financial risks or opportunities you observe.
 
+### Architecture:
+```
 
 
 ┌─────────────────────────────────────────┐
@@ -92,8 +96,9 @@ Calculated Metrics:
                 │        adapter/database                 │
                 │  (ORM models, sessions, repository impl)│
                 └─────────────────────────────────────────┘
+```
 
-
+```
 ┌───────────────────────────────────┐
 │         Domain (Core Logic)       │
 │ ┌───────────────────────────────┐ │
@@ -110,3 +115,8 @@ Calculated Metrics:
 │ │ Concrete Implementations      │  │
 │ └───────────────────────────────┘  │
 └────────────────────────────────────┘
+```
+
+```
+
+```
