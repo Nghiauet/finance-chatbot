@@ -14,7 +14,7 @@ from typing import List, Optional
 from loguru import logger
 from PyPDF2 import PdfReader, PdfWriter
 
-from backend.services.llm_service import get_llm_service
+from src.backend.adapter.ai.llm_service import get_llm_service
 
 # Constants
 MODEL_NAME = "gemini-2.0-flash"

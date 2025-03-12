@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from loguru import logger
 
 from backend.database.models import FinancialReport
-from backend.services.llm_service import get_llm_service
+from src.backend.adapter.ai.llm_service import get_llm_service
 
 class FinancialAnalyzer:
     """Service for analyzing financial reports and generating insights."""

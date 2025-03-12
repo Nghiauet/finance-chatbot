@@ -12,8 +12,8 @@ from typing import Dict, Any, Optional, List
 
 from loguru import logger
 
-from backend.services.llm_service import get_llm_service
-from backend.config import get_logger
+from src.backend.adapter.ai.llm_service import get_llm_service
+from src.backend.core.config import get_logger
 
 # Get configured logger
 log = get_logger("financial_data_creator")
@@ -582,7 +582,7 @@ if __name__ == "__main__":
     with open(f"/home/nghiaph/nghiaph_workspace/experiments/finance-chatbot/data/{file_name}", "w") as f:
         json.dump(data, f)
 
-    from backend.services.financial_analyzer import FinancialAnalyzer
+    from src.backend.adapter.data_creator.financial_analyzer import FinancialAnalyzer
     
     analyzer = FinancialAnalyzer()
     analysis = analyzer.analyze(data)
