@@ -38,14 +38,19 @@ S3_CONFIG = {
     "bucket_name": os.getenv("S3_BUCKET_NAME"),
 }
 
-# Database Configuration
-DB_CONFIG = {
-    "host": os.getenv("MONGO_HOST", "localhost"),
-    "port": int(os.getenv("MONGO_PORT", "27017")),
-    "username": os.getenv("MONGO_USERNAME"),
-    "password": os.getenv("MONGO_PASSWORD"),
-    "database": os.getenv("MONGO_DATABASE", "finance_chatbot"),
+# Database Configuration - Example (adjust as needed for your database)
+DATABASE_CONFIG = {
+    "db_url": os.getenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost/finance_chatbot"
+    )
 }
+
+# CORS Configuration
+CORS_CONFIG = {
+    "origins": os.getenv("CORS_ORIGINS", "http://localhost,http://localhost:3000").split(",")
+}
+CORS_ORIGINS = CORS_CONFIG["origins"]
 
 
 class LogConfig:
