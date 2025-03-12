@@ -15,7 +15,9 @@ An AI-powered finance chatbot that processes financial reports and provides auto
 
 src/
 ├── backend/
-│   ├── api/                      # API endpoints (HTTP handlers)
+│   ├── api/v1/
+│   │   ├── routes/
+│   │   └── schemas.py
 │   ├── domain/                   # Core business logic (pure Python)
 │   │   ├── models/               
 │   │   ├── repositories/
