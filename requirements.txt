@@ -1,7 +1,5 @@
 fastapi
 uvicorn
 python-multipart
-PyPDF2
-boto3
-mongoengine
 python-dotenv 
+google-genai 

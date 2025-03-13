@@ -30,22 +30,7 @@ LLM_CONFIG = {
     "top_k": int(os.getenv("LLM_TOP_K", "40")),
 }
 
-# S3 Configuration
-S3_CONFIG = {
-    "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
-    "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
-    "region_name": os.getenv("AWS_REGION", "us-east-1"),
-    "bucket_name": os.getenv("S3_BUCKET_NAME"),
-}
 
-# Database Configuration
-DB_CONFIG = {
-    "host": os.getenv("MONGO_HOST", "localhost"),
-    "port": int(os.getenv("MONGO_PORT", "27017")),
-    "username": os.getenv("MONGO_USERNAME"),
-    "password": os.getenv("MONGO_PASSWORD"),
-    "database": os.getenv("MONGO_DATABASE", "finance_chatbot"),
-}
 
 
 class LogConfig:

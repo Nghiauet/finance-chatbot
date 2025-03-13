@@ -12,13 +12,12 @@ setup(
     install_requires=[
         "fastapi",
         "uvicorn",
-        "python-multipart",
-        "PyPDF2",
-        "boto3",
-        "mongoengine",
         "python-dotenv",
-        "loguru",
-        "google-genai",  # For Gemini AI integration
+        "google-genai",
+        "langchain",
+        "transformers",
+        "sentence-transformers",
+        "faiss-cpu"
     ],
     extras_require={
         "dev": [
@@ -35,4 +34,4 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
     ],
-) 
+)
