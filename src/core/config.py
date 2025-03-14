@@ -21,18 +21,19 @@ LOGS_DIR = BASE_DIR.parent / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
-# LLM Configuration
-LLM_CONFIG = {
-    "api_key": os.getenv("GOOGLE_API_KEY"),
-    "default_model": os.getenv("DEFAULT_MODEL", "gemini-2.0-flash"),
-    "temperature": float(os.getenv("LLM_TEMPERATURE", "0.2")),
-    "top_p": float(os.getenv("LLM_TOP_P", "0.95")),
-    "top_k": int(os.getenv("LLM_TOP_K", "40")),
-}
 
 
+class LLMConfig:
+    """LLM configuration for the application."""
 
+    def __init__(self):
+        self.api_key = os.getenv("GOOGLE_API_KEY")
+        self.default_model = os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")
+        self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+        self.top_p = float(os.getenv("LLM_TOP_P", "0.95"))
+        self.top_k = int(os.getenv("LLM_TOP_K", "40"))
 
+# Logging configuration
 class LogConfig:
     """Centralized logging configuration for the application."""
     
@@ -52,18 +53,26 @@ class LogConfig:
         # Remove default logger
         logger.remove()
         
+        # Define a more readable format
+        log_format = (
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        )
+        
         # Add console logger (INFO level and above)
         logger.add(
             sink=lambda msg: print(msg),
             level="INFO",
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+            format=log_format
         )
         
         # Add file logger (DEBUG level and above with rotation)
         logger.add(
             sink=str(self.log_file),
             level="DEBUG",
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+            format=log_format,
             rotation="10 MB",
             retention="1 week",
             compression="zip"
