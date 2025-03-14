@@ -117,4 +117,42 @@ env
 */site-packages
 /data/*
 /archived/*
-```
+data**
+
+# Dependencies
+/node_modules
+/venv
+/env
+/env.local
+/env.development.local
+/env.test.local
+/env.production.local
+/finance-chatbot-frontend/node_modules
+/finance-chatbot-frontend/.next
+
+# Build outputs
+/dist
+/build
+/.next
+/finance-chatbot-frontend/.next
+
+# Data and local files
+/data
+data**
+/archived
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+/finance-chatbot-frontend/.env.local
+/finance-chatbot-frontend/.env.development.local
+/finance-chatbot-frontend/.env.test.local
+/finance-chatbot-frontend/.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

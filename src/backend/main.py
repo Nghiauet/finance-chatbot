@@ -2,13 +2,9 @@
 Main FastAPI application for the finance chatbot backend.
 """
 from fastapi import FastAPI, UploadFile, File
-from src.backend.services.pdf_processor import PDFProcessor
-from src.backend.services.data_extractor import DataExtractor
-from src.backend.services.financial_analyzer import FinancialAnalyzer
-from src.backend.database.models import FinancialReport
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.backend.api.v1 import chat_api
+from backend.api.v1 import chat_api
 
 # Create FastAPI app
 app = FastAPI(
@@ -42,26 +38,11 @@ async def root():
         "docs_url": "/docs"
     }
 
-@app.post("/upload-report")
-async def upload_report(file: UploadFile = File(...)):
-    # Process uploaded PDF
-    pdf_processor = PDFProcessor()
-    extracted_text = await pdf_processor.process(file)
-    
-    # Extract financial data
-    data_extractor = DataExtractor()
-    financial_data = data_extractor.extract(extracted_text)
-    
-    # Store in database
-    report = FinancialReport(**financial_data)
-    await report.save()
-    
-    # Generate analysis
-    analyzer = FinancialAnalyzer()
-    analysis = analyzer.analyze(financial_data)
-    
-    return {"analysis": analysis}
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8888) 
+    try:
+        config = uvicorn.Config(app, host="0.0.0.0", port=8123, reload=True)
+        server = uvicorn.Server(config)
+        server.run()
+    except Exception as e:
+        print(f"An error occurred: {e}")

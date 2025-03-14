@@ -6,3 +6,11 @@
 /env.test.local
 /env.production.local
 /archived
+data**
+/finance-chatbot-frontend/node_modules
+/finance-chatbot-frontend/.next
+/finance-chatbot-frontend/.git
+/finance-chatbot-frontend/.env.local
+/finance-chatbot-frontend/.env.development.local
+/finance-chatbot-frontend/.env.test.local
+/finance-chatbot-frontend/.env.production.local
