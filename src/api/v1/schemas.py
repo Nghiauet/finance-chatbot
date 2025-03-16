@@ -46,14 +46,14 @@ class FinancialReport(BaseModel):
     content: str = Field(..., description="The full text content of the financial report")
     tags: List[str] = Field(default_factory=list, description="Tags for categorizing the report")
 
-    class Config:
-        allow_population_by_field_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+        json_encoders={
             ObjectId: str,
             datetime: lambda dt: dt.isoformat()
-        }
-        schema_extra = {
+        },
+        json_schema_extra={
             "example": {
                 "report_id": "RPT2024-002",
                 "company": "ABC Corp",
@@ -65,6 +65,7 @@ class FinancialReport(BaseModel):
                 "tags": ["financial", "Q1", "income statement"]
             }
         }
+    )
 
 class ChatQuery(BaseModel):
     query: str

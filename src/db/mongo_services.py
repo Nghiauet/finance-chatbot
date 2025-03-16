@@ -52,7 +52,7 @@ class MongoService:
         Create a new financial report document
         
         Args:
-            report: FinancialReport model instance
+            report: FinancialReport model instance or dictionary
             
         Returns:
             str: Inserted document ID
@@ -61,18 +61,40 @@ class MongoService:
             HTTPException: If insertion fails
         """
         try:
-            report_dict = report.model_dump(by_alias=True, exclude={"id"})
+            # Handle both Pydantic model and dictionary inputs
+            if hasattr(report, 'model_dump'):
+                report_dict = report.model_dump(by_alias=True, exclude={"id"})
+            else:
+                # If report is already a dictionary
+                report_dict = report
+                
             result = await self._database.financial_reports.insert_one(report_dict)
             logger.info(f"Financial report created with ID: {result.inserted_id}")
             return str(result.inserted_id)
         except DuplicateKeyError:
-            logger.error(f"Duplicate report_id found: {report.report_id}")
-            raise HTTPException(status_code=400, detail=f"Report with ID {report.report_id} already exists")
+            report_id = report.report_id if hasattr(report, 'report_id') else report.get('report_id', 'unknown')
+            logger.error(f"Duplicate report_id found: {report_id}")
+            raise HTTPException(status_code=400, detail=f"Report with ID {report_id} already exists")
         except Exception as e:
             logger.error(f"Error creating financial report: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
     async def get_financial_report(self, report_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a financial report by its report_id
+        
+        Args:
+            report_id: Unique identifier for the report
+            
+        Returns:
+            Optional[Dict]: Report document or None if not found
+        """
+        report = await self._database.financial_reports.find_one({"report_id": report_id})
+        if report:
+            return report
+        return None
+    
+    async def get_financial_report_by_report_id(self, report_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve a financial report by its report_id
         
@@ -229,6 +251,24 @@ class MongoService:
         
         reports = await cursor.to_list(length=100)
         return reports
+    
+    async def get_financial_report_by_company(self, company: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the most recent report for a specific company
+        
+        Args:
+            company: Company name
+            
+        Returns:
+            Optional[Dict]: Most recent financial report document or None if not found
+        """
+        cursor = self._database.financial_reports.find({"company": company})
+        cursor = cursor.sort("date_created", -1).limit(1)
+        
+        reports = await cursor.to_list(length=1)
+        if reports:
+            return reports[0]
+        return None
     
     async def get_reports_by_tags(self, tags: List[str]) -> List[Dict[str, Any]]:
         """
