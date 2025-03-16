@@ -12,14 +12,12 @@ from google.genai import types
 
 from loguru import logger
 
-# Constants
-MODEL_NAME = "gemini-2.0-flash"
 
 
 class LLMService:
     """Service for interacting with Google's Gemini AI models."""
     
-    def __init__(self, model_name: str = MODEL_NAME):
+    def __init__(self, model_name: str = "gemini-2.0-flash"):
         """
         Initialize the LLM service.
         

@@ -4,10 +4,10 @@ setup(
     name="finance-chatbot",
     version="0.1.0",
     description="AI-powered finance chatbot for financial report analysis",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="nghiauet",
+    author_email="nghiauet@local",
     packages=find_packages(where="src"),
-    package_dir={"": "src"},
+    package_dir={"": "."},
     python_requires=">=3.8",
     install_requires=[
         "fastapi",
@@ -17,7 +17,8 @@ setup(
         "langchain",
         "transformers",
         "sentence-transformers",
-        "faiss-cpu"
+        "faiss-cpu",
+        "loguru"
     ],
     extras_require={
         "dev": [

@@ -1,6 +1,6 @@
 # Import required modules
 from datetime import datetime
-from typing import List, Optional, Literal, Annotated, Any
+from typing import List, Optional, Literal, Annotated, Any, Dict
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from bson import ObjectId
 from pydantic_core import core_schema
@@ -67,22 +67,18 @@ class FinancialReport(BaseModel):
         }
 
 class ChatQuery(BaseModel):
-    """Schema for chat query requests."""
-
     query: str
+    session_id: Optional[str] = None
     file_path: Optional[str] = None
     processed_file_path: Optional[str] = None
-    session_id: Optional[str] = None
-
+    company: Optional[str] = None
+    years: Optional[str] = None
 
 class ChatResponse(BaseModel):
-    """Schema for chat query responses."""
-
     answer: str
     metadata: Optional[Dict[str, Any]] = None
 
 class ClearChatResponse(BaseModel):
-    """Schema for clear chat responses."""
-
     status: str
     message: str
+

@@ -1,6 +1,8 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from .config import settings
-import os
+from src.core.config import settings, get_logger
+
+# Initialize logger for this module
+logger = get_logger("db.mongo_connect")
 
 class Database:
     client: AsyncIOMotorClient = None
@@ -17,20 +19,26 @@ class Database:
             'maxPoolSize': 100,
             'minPoolSize': 10,
             'maxIdleTimeMS': 50000,
-            
         }
+        logger.debug(f"Initializing MongoDB connection with database: {self.name}")
         self.client = AsyncIOMotorClient(self.uri, **self.client_options)
+        logger.info("MongoDB client initialized successfully")
 
     def connect_db(self):
         if not self.client:
+            logger.debug("Reconnecting to MongoDB")
             self.client = AsyncIOMotorClient(self.uri, **self.client_options)
+            logger.info("MongoDB client reconnected successfully")
 
     async def close_db(self):
         if self.client:
+            logger.debug("Closing MongoDB connection")
             self.client.close()
+            logger.info("MongoDB connection closed")
 
     @property
     def db(self):
+        logger.debug(f"Accessing database: {self.name}")
         return self.client[self.name]
 
 db = Database()
@@ -38,13 +46,15 @@ db = Database()
 async def main():
     """Test the database configuration"""
     try:
-        print("[DEBUG] db.uri: ", db.uri)
-        print("[DEBUG] db.name: ", db.name)
-        await db.connect_db()
+        logger.debug(f"Database URI: {db.uri}")
+        logger.debug(f"Database name: {db.name}")
+        db.connect_db()
         await db.close_db()
+        logger.info("Database test successful")
         print("Database test successful")
         return True
     except Exception as e:
+        logger.error(f"Database test failed: {str(e)}")
         print(f"Database test failed: {str(e)}")
         return False
 

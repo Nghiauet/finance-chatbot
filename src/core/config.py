@@ -13,7 +13,7 @@ from loguru import logger
 load_dotenv()
 
 # Base project paths
-BASE_DIR = Path(__file__).parent.parent  # src/backend -> src
+BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR.parent / "data"
 LOGS_DIR = BASE_DIR.parent / "logs"
 
@@ -21,6 +21,33 @@ LOGS_DIR = BASE_DIR.parent / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
+
+class Settings:
+    """Application settings loaded from environment variables."""
+    
+    def __init__(self):
+        # MongoDB settings
+        self.MONGO_CONN_STR = os.getenv("MONGO_CONN_STR", "")
+        self.DATABASE_NAME = os.getenv("DATABASE_NAME", "finance_chatbot")
+        
+        # API settings
+        self.API_VERSION = os.getenv("API_VERSION", "v1")
+        self.API_PREFIX = f"/api/{self.API_VERSION}"
+        
+        # Application settings
+        self.APP_NAME = os.getenv("APP_NAME", "Finance Chatbot")
+        self.DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+        
+        # File storage settings
+        self.UPLOAD_DIR = DATA_DIR / "uploads"
+        self.UPLOAD_DIR.mkdir(exist_ok=True)
+        
+        # CORS settings
+        self.CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+
+
+# Create a global settings instance
+settings = Settings()
 
 
 class LLMConfig:
@@ -33,7 +60,7 @@ class LLMConfig:
         self.top_p = float(os.getenv("LLM_TOP_P", "0.95"))
         self.top_k = int(os.getenv("LLM_TOP_K", "40"))
 
-# Logging configuration
+
 class LogConfig:
     """Centralized logging configuration for the application."""
     

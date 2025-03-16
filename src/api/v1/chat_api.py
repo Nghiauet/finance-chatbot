@@ -9,34 +9,46 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile, Query
 from loguru import logger
 
-from src.services.chatbot import chatbot_sessions, get_chatbot_service
-from src.services.ai_service import get_ai_service
-from src.api.v1.schemas import ChatQuery, ChatResponse
+from src.services.chat_service import chatbot_sessions, get_chatbot_service
+from src.api.v1.schemas import ChatQuery, ChatResponse, ClearChatResponse
 
 router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(query: ChatQuery):
-    """Process a chat query with optional document context."""
+    """Process a chat query with optional document context and financial report parameters."""
     try:
+        # Get or create a chatbot service for this session
         chatbot = get_chatbot_service(session_id=query.session_id)
+        
+        # Prioritize processed_file_path if available
         document_path = query.processed_file_path or query.file_path
-        response = chatbot.process_query(query.query, document_path)
+        
+        # Process the query with company and year parameters
+        response = await chatbot.process_query(
+            query=query.query, 
+            file_path=document_path,
+            stock_symbol=query.company,  # Use company field instead of stock_symbol
+            period=query.years  # Use years field instead of period
+        )
+        
         return ChatResponse(answer=response, metadata={"session_id": chatbot.session_id})
     except Exception as e:
+        logger.error(f"Error processing chat query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing chat query: {e}")
 
-@router.post("/smart-chat", response_model=ChatResponse)
-async def smart_chat(query: ChatQuery):
-    """
-    Process a chat query using the smart router for enhanced document search and analysis.
-    This endpoint uses AI to analyze the query, determine if document search is needed,
-    and validate search results before generating a response.
-    """
+@router.post("/clear-chat", response_model=ClearChatResponse)
+async def clear_chat(session_id: str = Query(..., description="Session ID to clear")):
+    """Clear the conversation history for a specific chat session."""
     try:
-        ai_service = get_ai_service()
-        response = ai_service.process_query(query)
-        return response
+        if session_id in chatbot_sessions:
+            chatbot = chatbot_sessions[session_id]
+            chatbot.conversation_history = []
+            logger.info(f"Chat history cleared for session {session_id}")
+            return ClearChatResponse(status="success", message="Chat history cleared")
+        else:
+            logger.warning(f"Session {session_id} not found, nothing to clear")
+            return ClearChatResponse(status="warning", message="Session not found, nothing to clear")
     except Exception as e:
-        logger.error(f"Error processing smart chat query: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing smart chat query: {e}")
+        logger.error(f"Error clearing chat history for session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error clearing chat history: {e}")
