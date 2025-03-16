@@ -20,7 +20,7 @@ LOGS_DIR = BASE_DIR.parent / "logs"
 # Ensure directories exist
 LOGS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
-
+import sys
 
 class Settings:
     """Application settings loaded from environment variables."""
@@ -41,6 +41,10 @@ class Settings:
         # File storage settings
         self.UPLOAD_DIR = DATA_DIR / "uploads"
         self.UPLOAD_DIR.mkdir(exist_ok=True)
+        self.RAW_PDF_DIR = DATA_DIR / "raw_pdf"
+        self.RAW_PDF_DIR.mkdir(exist_ok=True)
+        self.CONVERTED_FILE_DIR = DATA_DIR / "converted_file"
+        self.CONVERTED_FILE_DIR.mkdir(exist_ok=True)
         
         # CORS settings
         self.CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
@@ -61,75 +65,40 @@ class LLMConfig:
         self.top_k = int(os.getenv("LLM_TOP_K", "40"))
 
 
-class LogConfig:
-    """Centralized logging configuration for the application."""
-    
-    def __init__(self, app_name: str = "finance_chatbot"):
-        """
-        Initialize logging configuration.
-        
-        Args:
-            app_name: Name of the application for log identification
-        """
-        self.app_name = app_name
-        self.log_file = LOGS_DIR / f"{app_name}.log"
-        self._configure_logger()
-    
-    def _configure_logger(self) -> None:
-        """Set up loguru logger with file and console outputs."""
-        # Remove default logger
-        logger.remove()
-        
-        # Define a more readable format
-        log_format = (
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-            "<level>{message}</level>"
-        )
-        
-        # Add console logger (INFO level and above)
-        logger.add(
-            sink=lambda msg: print(msg),
-            level="INFO",
-            format=log_format
-        )
-        
-        # Add file logger (DEBUG level and above with rotation)
-        logger.add(
-            sink=str(self.log_file),
-            level="DEBUG",
-            format=log_format,
-            rotation="10 MB",
-            retention="1 week",
-            compression="zip"
-        )
-    
-    def get_logger(self, module_name: str):
-        """
-        Get a logger instance for a specific module.
-        
-        Args:
-            module_name: Name of the module for log identification
-            
-        Returns:
-            Configured logger instance
-        """
-        return logger.bind(name=f"{self.app_name}.{module_name}")
-
-
-# Create default logging configuration
-log_config = LogConfig()
-
-
-def get_logger(module_name: str):
+# Logging configuration
+def get_logger(name, request_id=None):
     """
-    Get a logger for a specific module.
+    Get a configured logger instance.
     
     Args:
-        module_name: Name of the module
+        name: Name of the logger (typically __name__)
+        request_id: Optional request ID for tracking requests across logs
         
     Returns:
         Configured logger instance
     """
-    return log_config.get_logger(module_name)
+    from loguru import logger
+    
+    # Configure logger format
+    format_string = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    format_string += "<level>{level: <8}</level> | "
+    format_string += "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+    
+    if request_id:
+        format_string += f"<yellow>request_id={request_id}</yellow> | "
+    
+    format_string += "<level>{message}</level>"
+    
+    # Remove default logger and add custom configuration
+    logger.remove()
+    logger.add(sys.stderr, format=format_string, level="DEBUG" if settings.DEBUG else "INFO")
+    logger.add(
+        LOGS_DIR / "app.log",
+        rotation="10 MB",
+        retention="1 week",
+        format=format_string,
+        level="DEBUG",
+        enqueue=True
+    )
+    
+    return logger.bind(name=name)

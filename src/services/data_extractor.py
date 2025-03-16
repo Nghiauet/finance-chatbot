@@ -15,7 +15,7 @@ from loguru import logger
 from PyPDF2 import PdfReader, PdfWriter
 
 from src.services.llm_service import get_llm_service
-
+from src.core.config import settings
 # Constants
 MODEL_NAME = "gemini-2.0-flash"
 TIMESTAMP_FORMAT = "%Y%m%d"
@@ -165,15 +165,14 @@ Extract and convert the complete content of this PDF document following these sp
         extracted_texts = []
         timestamp = datetime.now().strftime(self.timestamp_format)
         
-        # Create output file path with versioning
-        base_output_file = file_path.replace('.pdf', f'_{timestamp}{self.extraction_suffix}')
-        version = self.get_next_version(base_output_file)
-        output_file = base_output_file.replace('.txt', f'_v{version}.md')
-        output_file = output_file.replace('.pdf', f'_v{version}.md')
+        # Get just the filename from the path
+        filename = os.path.basename(file_path)
         
-        # Ensure output directory exists
-        output_dir = os.path.dirname(output_file)
-        os.makedirs(output_dir, exist_ok=True)
+        # Create output file path with versioning in the specified directory
+        output_dir = Path(settings.CONVERTED_FILE_DIR)
+        base_output_file = os.path.join(output_dir, filename.replace('.pdf', f'_{timestamp}{self.extraction_suffix}'))
+        version = self.get_next_version(base_output_file)
+        output_file = base_output_file.replace('.pdf', f'_v{version}.md')
         
         try:
             # Split PDF into individual pages
@@ -243,12 +242,8 @@ Extract and convert the complete content of this PDF document following these sp
 
 
 if __name__ == "__main__":
-    # Use Path for better path handling
-    # test_file_path = str(Path(__file__).parent.parent.parent.parent / "data" / 
-                        #  "3_vcs_2025_2_6_82a803b_vi_baocaotaichinhhopnhat_q4_2024_signed.pdf")
-    # Alternative test file
-    # test_file_path = str(Path(__file__).parent.parent.parent.parent / "data" / "arXiv 2103.15348v2.pdf")
-    test_file_path = str(Path(__file__).parent.parent.parent / "data" / "PHN_Baocaotaichinh_Q1_2025_hopnhat.pdf")
+
+    test_file_path = Path(settings.RAW_PDF_DIR) / "PHN_Baocaotaichinh_Q1_2025_hopnhat.pdf"
 
     data_extractor = DataExtractor()
     extraction_result = data_extractor.extract_text_from_pdf(test_file_path)

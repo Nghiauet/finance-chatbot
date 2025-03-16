@@ -101,3 +101,10 @@ def get_llm_service(model_name: str = MODEL_NAME) -> LLMService:
         return LLMService(model_name)
     
     return default_llm_service
+
+if __name__ == "__main__":
+    llm_service = get_llm_service()
+    #test generate content
+    prompt = "What is the capital of France?"
+    response = llm_service.generate_content(prompt)
+    print(response)
