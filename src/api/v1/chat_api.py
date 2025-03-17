@@ -21,15 +21,12 @@ async def chat(query: ChatQuery):
         # Get or create a chatbot service for this session
         chatbot = get_chatbot_service(session_id=query.session_id)
         
-        # Prioritize processed_file_path if available
-        document_path = query.processed_file_path or query.file_path
-        
-        # Process the query with company and year parameters
+        # Process the query with company and period parameters
+        # The chat service will now handle retrieving financial reports internally
         response = await chatbot.process_query(
             query=query.query, 
-            file_path=document_path,
-            stock_symbol=query.company,  # Use company field instead of stock_symbol
-            period=query.years  # Use years field instead of period
+            stock_symbol=query.company,  
+            period=query.period
         )
         
         return ChatResponse(answer=response, metadata={"session_id": chatbot.session_id})

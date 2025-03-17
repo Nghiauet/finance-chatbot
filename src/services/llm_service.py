@@ -45,6 +45,7 @@ class LLMService:
         Returns:
             Generated text or None if generation failed
         """
+        logger.info(f"Generating content with prompt: {prompt}")
         try:
             contents = [prompt]
             

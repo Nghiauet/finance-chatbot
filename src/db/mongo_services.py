@@ -286,6 +286,49 @@ class MongoService:
         reports = await cursor.to_list(length=100)
         return reports
 
+    async def get_financial_report_by_symbol_and_period(self, symbol: str, period: Optional[str] = None) -> Dict:
+        """
+        Retrieve a financial report by company symbol and period.
+        
+        Args:
+            symbol: The company stock symbol
+            period: Optional period (e.g., "Q1-2023")
+            
+        Returns:
+            The financial report document or None if not found
+        """
+        try:
+            # Create a case-insensitive query for the company symbol
+            # This will match regardless of case (upper, lower, mixed)
+            query = {"company": {"$regex": f"^{symbol}$", "$options": "i"}}
+            if period:
+                query["period"] = {"$regex": f"^{period}$", "$options": "i"}
+            
+            logger.info(f"Searching for financial report with query: {query}")
+            report = await self._database.financial_reports.find_one(query)
+            
+            if report:
+                logger.info(f"Found financial report for {symbol} ({period})")
+                return report
+            else:
+                # Try a more flexible search if exact match fails
+                fallback_query = {"company": {"$regex": symbol, "$options": "i"}}
+                if period:
+                    fallback_query["period"] = {"$regex": period, "$options": "i"}
+                
+                logger.info(f"Trying fallback query: {fallback_query}")
+                report = await self._database.financial_reports.find_one(fallback_query)
+                
+                if report:
+                    logger.info(f"Found financial report for {symbol} with fallback query")
+                    return report
+                else:
+                    logger.warning(f"No financial report found for {symbol} ({period})")
+                    return None
+        except Exception as e:
+            logger.error(f"Error retrieving financial report: {str(e)}")
+            return None
+
 async def test_mongo_service():
     """Test the MongoDB service functionality"""
     try:
@@ -319,12 +362,25 @@ async def test_mongo_service():
         logger.error(f"Error testing MongoDB service: {str(e)}")
         return False
 
+async def main():
+    """Main function to run all tests"""
+    try:
+        logger.info("Starting MongoDB service tests")
+        await test_mongo_service()
+        logger.info("MongoDB service tests completed")
+        
+        # Test search for MSH for Q4-2024 - moved inside the main async function
+        mongo_service = MongoService()
+        report = await mongo_service.get_financial_report_by_symbol_and_period("MSH", "Q4-2024")
+        logger.info(f"Report: {report}")
+        
+    except Exception as e:
+        logger.error(f"Error during tests: {e}")
+
 if __name__ == "__main__":
     """Run the MongoDB service tests when module is executed directly"""
     try:
-        logger.info("Starting MongoDB service tests")
-        asyncio.run(test_mongo_service())
-        logger.info("MongoDB service tests completed")
+        asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Tests interrupted by user")
     except Exception as e:

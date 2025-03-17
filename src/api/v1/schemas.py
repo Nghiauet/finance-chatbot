@@ -70,10 +70,8 @@ class FinancialReport(BaseModel):
 class ChatQuery(BaseModel):
     query: str
     session_id: Optional[str] = None
-    file_path: Optional[str] = None
-    processed_file_path: Optional[str] = None
     company: Optional[str] = None
-    years: Optional[str] = None
+    period: Optional[str] = None
 
 class ChatResponse(BaseModel):
     answer: str

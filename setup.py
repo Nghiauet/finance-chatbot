@@ -15,10 +15,8 @@ setup(
         "python-dotenv",
         "google-genai",
         "langchain",
-        "transformers",
-        "sentence-transformers",
-        "faiss-cpu",
-        "loguru"
+        "loguru",
+        "pydantic==2.7.4"
     ],
     extras_require={
         "dev": [

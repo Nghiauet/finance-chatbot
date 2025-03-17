@@ -4,7 +4,7 @@ Main FastAPI application for the finance chatbot backend.
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.v1 import chat_api
+from src.api.v1 import chat_api
 
 # Create FastAPI app
 app = FastAPI(

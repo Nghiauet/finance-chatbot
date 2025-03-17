@@ -65,6 +65,9 @@ class LLMConfig:
         self.top_k = int(os.getenv("LLM_TOP_K", "40"))
 
 
+# Create a global LLMConfig instance
+llm_config = LLMConfig()
+
 # Logging configuration
 def get_logger(name, request_id=None):
     """
