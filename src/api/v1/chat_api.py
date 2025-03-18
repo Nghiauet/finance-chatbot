@@ -40,7 +40,10 @@ async def chat_stream(query: ChatQuery):
     """Process a chat query and stream the response."""
     try:
         chatbot = get_chatbot_service(session_id=query.session_id)
-
+        logger.info(f"Session ID: {query.session_id}")
+        logger.info(f"Query: {query.query}")
+        logger.info(f"Company: {query.company}")
+        logger.info(f"Period: {query.period}")
         response_stream = await chatbot.process_query_stream(
             query=query.query, stock_symbol=query.company, period=query.period
         )

@@ -109,7 +109,7 @@ class LLMService:
             if system_instruction:
                 config.system_instruction = system_instruction
         
-            logger.info(f"prompt : {prompt}")
+            # logger.info(f"prompt : {prompt}")
             # logger.info(f"file_path : {file_path}")
             # logger.info(f"system_instruction : {system_instruction}")
             # Generate content with streaming
