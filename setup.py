@@ -16,7 +16,8 @@ setup(
         "google-genai",
         "langchain",
         "loguru",
-        "pydantic==2.7.4"
+        "pydantic==2.7.4",
+        "tiktoken",
     ],
     extras_require={
         "dev": [

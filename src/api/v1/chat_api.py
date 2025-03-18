@@ -21,6 +21,8 @@ async def chat(query: ChatQuery):
         # Get or create a chatbot service for this session
         chatbot = get_chatbot_service(session_id=query.session_id)
         
+        logger.debug(f"Chat input: {query}")
+
         # Process the query with company and period parameters
         # The chat service will now handle retrieving financial reports internally
         response = await chatbot.process_query(
@@ -28,6 +30,8 @@ async def chat(query: ChatQuery):
             stock_symbol=query.company,  
             period=query.period
         )
+        
+        logger.debug(f"Chatbot output: {response}")
         
         return ChatResponse(answer=response, metadata={"session_id": chatbot.session_id})
     except Exception as e:

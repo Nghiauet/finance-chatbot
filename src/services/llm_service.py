@@ -27,7 +27,32 @@ class LLMService:
         self.model_name = model_name
         self.client = genai.Client()
         logger.info(f"Initialized LLM service with model: {model_name}")
-    
+    def count_tokens(self, prompt: str) -> int:
+        """
+        Count the tokens in the prompt using tiktoken.
+        
+        Args:
+            prompt: The text prompt to count tokens for
+            
+        Returns:
+            Number of tokens in the prompt
+        """
+        try:
+            import tiktoken
+            
+            # Use cl100k_base encoding which is compatible with many models
+            # You may need to adjust this based on the specific tokenizer used by Gemini
+            encoding = tiktoken.get_encoding("cl100k_base")
+            tokens = encoding.encode(prompt)
+            return len(tokens)
+        except ImportError:
+            logger.warning("tiktoken not installed. Falling back to approximate count.")
+            # Fallback to a very rough approximation (4 chars per token)
+            return len(prompt) // 4
+        except Exception as e:
+            logger.error(f"Error counting tokens: {str(e)}")
+            return 0
+
     def generate_content(self, 
                          prompt: str, 
                          file_path: Optional[str] = None, 
@@ -45,7 +70,11 @@ class LLMService:
         Returns:
             Generated text or None if generation failed
         """
-        logger.info(f"Generating content with prompt: {prompt}")
+        # logger.info(f"Generating content with prompt: {prompt}")
+        # logger.info(f"System instruction: {system_instruction}")
+        # calculate the token count of the prompt
+        token_count = self.count_tokens(prompt)
+        logger.info(f"input token count: {token_count}")
         try:
             contents = [prompt]
             
@@ -73,7 +102,7 @@ class LLMService:
                 contents=contents,
                 config=config
             )
-            
+            logger.info(f"output token count: {self.count_tokens(response.text)}")
             return response.text if response.text else None
             
         except Exception as e:

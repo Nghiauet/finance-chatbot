@@ -38,40 +38,6 @@ class ChatbotService:
             f" {self.session_id}"
         )
 
-    def load_document(self, file_path: str) -> str | None:
-        """
-        Load a document and return its content as a string.
-
-        Args:
-            file_path: Path to the file to load.
-
-        Returns:
-            String containing the document content, or None if loading failed.
-        """
-        if not file_path:
-            return None
-
-        try:
-            if not os.path.exists(file_path):
-                logger.error(f"File not found: {file_path}")
-                return None
-
-            file_ext = os.path.splitext(file_path)[1].lower()
-            if file_ext in (".txt", ".md"):
-                loader = TextLoader(file_path)
-                documents = loader.load()
-                text = "\n".join(doc.page_content for doc in documents)
-                logger.info(f"Document loaded: {file_path}")
-                return text
-            else:
-                logger.error(f"Unsupported file type: {file_ext}")
-                return None
-
-        except Exception as e:
-            logger.error(f"Error loading document: {str(e)}")
-            return None
-
-
     def get_system_instruction(self) -> str:
         """
         Get the system instruction for the chatbot.
