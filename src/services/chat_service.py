@@ -237,9 +237,9 @@ if __name__ == "__main__":
 
     async def main():
         chatbot = get_chatbot_service()
-        query = "What is the revenue of MSH in 2024?"
+        query = "Phân tích chi tiết về công ty này"
         period = "2024"
-        stock_symbol = "MSH"
+        stock_symbol = "VNM"
 
         response_stream = await chatbot.process_query_stream(query, stock_symbol, period)
         for chunk in response_stream:
