@@ -8,7 +8,7 @@ import os
 import uuid
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, AsyncGenerator
 from datetime import datetime
 
 # from langchain.document_loaders import TextLoader
@@ -77,24 +77,8 @@ class ChatbotService:
         """
         try:
             # Get financial report content if stock symbol is provided
-            financial_report_content = None
-            if stock_symbol:
-                financial_report = await self.mongo_service.get_financial_report_by_symbol_and_period(stock_symbol, period)
-                if financial_report:
-                    financial_report_content = financial_report.get('content', '')
-                    logger.info(f"Retrieved financial report for {stock_symbol} ({period})")
-                else:
-                    logger.warning(f"No financial report found for symbol {stock_symbol} and period {period}")
-            
             # Build the appropriate prompt based on available context
-            if financial_report_content:
-                prompt = self._build_prompt_with_financial_reports(financial_report_content, query)
-            else:
-                # If no financial report is found but stock symbol was provided, include that information in the prompt
-                if stock_symbol:
-                    prompt = self._build_prompt_for_missing_financial_report(stock_symbol, period, query)
-                else:
-                    prompt = self._build_prompt_without_context(query)
+            prompt = await self._build_prompt(query, stock_symbol, period)
             
             response = self.llm_service.generate_content(
                 prompt=prompt,
@@ -114,6 +98,34 @@ class ChatbotService:
                 "Sorry, an error occurred while processing your query:"
                 f" {str(e)}"
             )
+    async def process_query_stream(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None):
+        try:
+            prompt = await self._build_prompt(query, stock_symbol, period)
+            response_stream = self.llm_service.generate_content_stream(
+                prompt=prompt,
+                system_instruction=self.get_system_instruction(),
+            )
+            return response_stream
+        except Exception as e:
+            logger.error(f"Error processing query: {str(e)}")
+            raise
+    async def _build_prompt(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None) -> str:
+        """Build the appropriate prompt based on available context."""
+        financial_report_content = None
+        if stock_symbol:
+            financial_report = await self.mongo_service.get_financial_report_by_symbol_and_period(stock_symbol, period)
+            if financial_report:
+                financial_report_content = financial_report.get('content', '')
+                logger.info(f"Retrieved financial report for {stock_symbol} ({period})")
+            else:
+                logger.warning(f"No financial report found for symbol {stock_symbol} and period {period}")
+        
+        if financial_report_content:
+            return self._build_prompt_with_financial_reports(financial_report_content, query)
+        elif stock_symbol:
+            return self._build_prompt_for_missing_financial_report(stock_symbol, period, query)
+        else:
+            return self._build_prompt_without_context(query)
 
     def _build_prompt_with_financial_reports(self, report_content: str, query: str) -> str:
         """Build prompt string with financial report content."""
@@ -143,8 +155,6 @@ class ChatbotService:
             conversation_context = f"""[CONTEXT]\nPrevious conversation:\n{chr(10).join(self.conversation_history)}\n[/CONTEXT]\n"""
 
         return f"""{financial_reports}\n\n{conversation_context}{prompt_prefix}\n{query}\n\nIf neither the financial reports nor the context contains information about this question but it's a general financial concept, please provide a helpful answer based on your financial knowledge."""
-
-
 
     def _build_prompt_with_context(self, document_content: str, query: str) -> str:
         """Build prompt string with document context."""
@@ -197,11 +207,8 @@ class ChatbotService:
 
         return f"""{context}\n{prompt_prefix}\n{query}"""
 
-
-
 default_chatbot_service = ChatbotService()
 chatbot_sessions: Dict[str, ChatbotService] = {}
-
 
 def get_chatbot_service(
     model_name: str = llm_config.default_model, session_id: str = None
@@ -224,3 +231,18 @@ def get_chatbot_service(
         chatbot_sessions[session_id] = ChatbotService(model_name, session_id)
 
     return chatbot_sessions[session_id]
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        chatbot = get_chatbot_service()
+        query = "What is the revenue of MSH in 2024?"
+        period = "2024"
+        stock_symbol = "MSH"
+
+        response_stream = await chatbot.process_query_stream(query, stock_symbol, period)
+        for chunk in response_stream:
+            print(chunk, end="", flush=True)
+
+    asyncio.run(main())

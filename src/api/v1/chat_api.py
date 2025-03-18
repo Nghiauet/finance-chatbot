@@ -38,6 +38,36 @@ async def chat(query: ChatQuery):
         logger.error(f"Error processing chat query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing chat query: {e}")
 
+@router.post("/chat-stream")
+async def chat_stream(query: ChatQuery):
+    """Process a chat query with optional document context and financial report parameters, using streaming."""
+    try:
+        # Get or create a chatbot service for this session
+        chatbot = get_chatbot_service(session_id=query.session_id)
+        
+        logger.debug(f"Chat input: {query}")
+
+        # Return the streaming response
+        response_stream = chatbot.process_query_stream(
+            query=query.query, 
+            stock_symbol=query.company,  
+            period=query.period
+        )
+        
+        full_response = ""
+        async for chunk in response_stream:
+            if chunk is None:
+                continue  # Handle potential errors or None chunks
+            full_response += chunk
+            yield chunk
+
+        chatbot.conversation_history.append(f"User: {query.query}")
+        chatbot.conversation_history.append(f"Chatbot: {full_response}")
+
+    except Exception as e:
+        logger.error(f"Error processing chat query: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing chat query: {e}")
+
 @router.post("/clear-chat", response_model=ClearChatResponse)
 async def clear_chat(session_id: str = Query(..., description="Session ID to clear")):
     """Clear the conversation history for a specific chat session."""

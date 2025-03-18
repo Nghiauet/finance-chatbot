@@ -27,31 +27,6 @@ class LLMService:
         self.model_name = model_name
         self.client = genai.Client(api_key=llm_config.api_key)
         logger.info(f"Initialized LLM service with model: {model_name}")
-    def count_tokens(self, prompt: str) -> int:
-        """
-        Count the tokens in the prompt using tiktoken.
-        
-        Args:
-            prompt: The text prompt to count tokens for
-            
-        Returns:
-            Number of tokens in the prompt
-        """
-        try:
-            import tiktoken
-            
-            # Use cl100k_base encoding which is compatible with many models
-            # You may need to adjust this based on the specific tokenizer used by Gemini
-            encoding = tiktoken.get_encoding("cl100k_base")
-            tokens = encoding.encode(prompt)
-            return len(tokens)
-        except ImportError:
-            logger.warning("tiktoken not installed. Falling back to approximate count.")
-            # Fallback to a very rough approximation (4 chars per token)
-            return len(prompt) // 4
-        except Exception as e:
-            logger.error(f"Error counting tokens: {str(e)}")
-            return 0
 
     def generate_content(self, 
                          prompt: str, 
@@ -72,9 +47,6 @@ class LLMService:
         """
         # logger.info(f"Generating content with prompt: {prompt}")
         # logger.info(f"System instruction: {system_instruction}")
-        # calculate the token count of the prompt
-        token_count = self.count_tokens(prompt)
-        logger.info(f"input token count: {token_count}")
         try:
             contents = [prompt]
             
@@ -102,12 +74,55 @@ class LLMService:
                 contents=contents,
                 config=config
             )
-            logger.info(f"output token count: {self.count_tokens(response.text)}")
             return response.text if response.text else None
             
         except Exception as e:
             logger.error(f"Error generating content: {str(e)}")
             return None
+
+    def generate_content_stream(self, 
+                                prompt: str, 
+                                file_path: Optional[str] = None, 
+                                generation_config: Optional[Dict[str, Any]] = None,
+                                system_instruction: Optional[str] = None):
+        """
+        Generate content using the Gemini model with streaming.
+        
+        Args:
+            prompt: The text prompt to send to the model.
+            file_path: Optional path to a file to include with the prompt.
+            generation_config: Optional configuration parameters for generation.
+            system_instruction: Optional system instruction for the model.
+            
+        Yields:
+            The generated text in chunks.
+        """
+        try:
+            contents = [prompt]
+            
+            # Add file if provided
+            if file_path:
+                file_obj = self.client.files.upload(file=file_path)
+                contents.append(file_obj)
+            
+            # Create generate content config with system instruction if provided
+            config = types.GenerateContentConfig()
+            if system_instruction:
+                config.system_instruction = system_instruction
+            
+            # Generate content with streaming
+            response_stream = self.client.models.generate_content_stream(
+                model=self.model_name,
+                contents=contents,
+                config=config
+            )
+            
+            for chunk in response_stream:
+                yield chunk.text
+                
+        except Exception as e:
+            logger.error(f"Error generating content stream: {str(e)}")
+            yield None
 
 
 # Singleton instance for easy import
@@ -134,7 +149,8 @@ def get_llm_service(model_name: str = MODEL_NAME) -> LLMService:
 
 if __name__ == "__main__":
     llm_service = get_llm_service()
-    #test generate content
-    prompt = "What is the capital of France?"
-    response = llm_service.generate_content(prompt)
-    print(response)
+    #test the streaming
+    prompt = "How to use the Gemini API?"
+    response_stream = llm_service.generate_content_stream(prompt)
+    for chunk in response_stream:
+        print(chunk, end="", flush=True)
