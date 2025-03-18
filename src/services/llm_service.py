@@ -99,7 +99,6 @@ class LLMService:
         """
         try:
             contents = [prompt]
-            
             # Add file if provided
             if file_path:
                 file_obj = self.client.files.upload(file=file_path)
@@ -109,7 +108,10 @@ class LLMService:
             config = types.GenerateContentConfig()
             if system_instruction:
                 config.system_instruction = system_instruction
-            
+        
+            logger.info(f"prompt : {prompt}")
+            # logger.info(f"file_path : {file_path}")
+            # logger.info(f"system_instruction : {system_instruction}")
             # Generate content with streaming
             response_stream = self.client.models.generate_content_stream(
                 model=self.model_name,
