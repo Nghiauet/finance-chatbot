@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
-from langchain.document_loaders import TextLoader
+# from langchain.document_loaders import TextLoader
 from loguru import logger
 from src.services.llm_service import LLMService, get_llm_service
 from src.db.mongo_services import MongoService

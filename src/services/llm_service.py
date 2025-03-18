@@ -9,7 +9,7 @@ from pathlib import Path
 
 from google import genai
 from google.genai import types
-
+from src.core.config import llm_config
 from loguru import logger
 
 MODEL_NAME = "gemini-2.0-flash"
@@ -25,7 +25,7 @@ class LLMService:
             model_name: Name of the Gemini model to use
         """
         self.model_name = model_name
-        self.client = genai.Client()
+        self.client = genai.Client(api_key=llm_config.api_key)
         logger.info(f"Initialized LLM service with model: {model_name}")
     def count_tokens(self, prompt: str) -> int:
         """

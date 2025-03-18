@@ -1,5 +1,10 @@
 fastapi
 uvicorn
 python-multipart
-python-dotenv 
-google-genai 
+python-dotenv
+motor
+langchain-community
+langchain
+loguru
+tiktoken
+google-genai

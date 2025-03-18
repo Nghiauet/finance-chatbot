@@ -1,5 +1,8 @@
 from setuptools import setup, find_packages
 
+with open('requirements.txt', 'r') as f:
+    required_packages = [line.strip() for line in f.readlines() if not line.startswith('-e')]
+
 setup(
     name="finance-chatbot",
     version="0.1.0",
@@ -9,16 +12,7 @@ setup(
     packages=find_packages(where="src"),
     package_dir={"": "."},
     python_requires=">=3.8",
-    install_requires=[
-        "fastapi",
-        "uvicorn",
-        "python-dotenv",
-        "google-genai",
-        "langchain",
-        "loguru",
-        "pydantic==2.7.4",
-        "tiktoken",
-    ],
+    install_requires=required_packages,
     extras_require={
         "dev": [
             "pytest",
