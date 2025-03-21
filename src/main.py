@@ -6,9 +6,11 @@ import argparse
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from langgraph.checkpoint.memory import MemorySaver
 
 from src.api.v1 import chat_api
-
+from src.core.config import settings
+from src.core.agent_manager import agent  # Import the agent from agent_manager
 
 # Create FastAPI app
 app = FastAPI(
@@ -17,18 +19,22 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Set all CORS enabled origins
+if settings.BACKEND_CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Include routers
-app.include_router(chat_api.router, prefix="/api/v1", tags=["chat"])
+app.include_router(chat_api.router, prefix=settings.API_PREFIX)
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    print("Shutting down...")
 
 @app.get("/")
 async def root():

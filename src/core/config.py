@@ -48,11 +48,11 @@ class Settings:
         
         # CORS settings
         self.CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+        self.BACKEND_CORS_ORIGINS = os.getenv("BACKEND_CORS_ORIGINS", "*").split(",")
 
 
 # Create a global settings instance
 settings = Settings()
-
 
 class LLMConfig:
     """LLM configuration for the application."""
