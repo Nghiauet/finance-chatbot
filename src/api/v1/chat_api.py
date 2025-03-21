@@ -14,6 +14,8 @@ from src.core.config import logger
 from src.api.v1.schemas import ChatQuery, ChatResponse, ClearChatResponse
 from src.services.chat_service import chatbot_sessions, get_chatbot_service
 from src.services.agent import QueryAgent
+from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import MemorySaver
 router = APIRouter()
 
 
@@ -56,7 +58,8 @@ async def chat_stream(query: ChatQuery):
 @router.post("/chat-agent")
 async def chat_agent(query: ChatQuery): 
     """Process a chat query using the agent."""
-    agent = QueryAgent()
+    memory = MemorySaver()
+    agent = QueryAgent(memory=memory)
     response = agent._get_answer(query.query,session_id=query.session_id)
     return response
 
