@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple
 from loguru import logger
 from bson import ObjectId
 
-from src.services.data_extractor import DataExtractor
+from src.services.tools.data_extractor import DataExtractor
 from src.api.v1.schemas import FinancialReport
 from src.core.config import settings, get_logger
 

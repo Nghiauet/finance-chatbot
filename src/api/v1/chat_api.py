@@ -9,11 +9,11 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile, Query
 from fastapi.responses import StreamingResponse
-from loguru import logger
+from src.core.config import logger
 
 from src.api.v1.schemas import ChatQuery, ChatResponse, ClearChatResponse
 from src.services.chat_service import chatbot_sessions, get_chatbot_service
-
+from src.services.agent import QueryAgent
 router = APIRouter()
 
 
@@ -53,6 +53,12 @@ async def chat_stream(query: ChatQuery):
         logger.error(f"Error processing chat query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing chat query: {e}")
 
+@router.post("/chat-agent")
+async def chat_agent(query: ChatQuery): 
+    """Process a chat query using the agent."""
+    agent = QueryAgent()
+    response = agent._get_answer(query.query,session_id=query.session_id)
+    return response
 
 @router.post("/clear-chat", response_model=ClearChatResponse)
 async def clear_chat(session_id: str = Query(..., description="Session ID to clear")):

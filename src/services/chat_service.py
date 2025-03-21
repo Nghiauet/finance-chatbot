@@ -4,11 +4,12 @@ from __future__ import annotations
 import uuid
 from typing import Dict, List, Optional, AsyncGenerator
 
-from loguru import logger
+from src.core.config import logger
 
 from src.services.llm_service import LLMService, get_llm_service
 from src.db.mongo_services import MongoService
 from src.core.config import llm_config
+from src.services.tools.toolbox import get_stock_price_from_vnstock
 import json
 
 class ChatbotService:
@@ -94,6 +95,8 @@ class ChatbotService:
     async def _build_prompt(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None) -> str:
         """Build the appropriate prompt based on available context."""
         financial_report_content = None
+        stock_price_info = None
+
         if stock_symbol:
             financial_report = await self.mongo_service.get_financial_report_by_symbol_and_period(stock_symbol, period)
             if financial_report:
@@ -101,18 +104,36 @@ class ChatbotService:
                 logger.info(f"Retrieved financial report for {stock_symbol} ({period})")
             else:
                 logger.warning(f"No financial report found for symbol {stock_symbol} and period {period}")
+            
+            # Fetch stock price
+            try:
+                stock_price = get_stock_price_from_vnstock(stock_symbol)
+                if stock_price:
+                    stock_price_info = f"Current stock price of {stock_symbol}: {stock_price}"
+                    logger.info(f"Retrieved stock price for {stock_symbol}: {stock_price}")
+                else:
+                    logger.warning(f"Could not retrieve stock price for {stock_symbol}")
+            except Exception as e:
+                logger.error(f"Error fetching stock price for {stock_symbol}: {e}")
 
-        if financial_report_content:
+        if financial_report_content and stock_price_info:
+            return self._build_prompt_with_financial_reports(financial_report_content, query, stock_price_info)
+        elif financial_report_content:
             return self._build_prompt_with_financial_reports(financial_report_content, query)
+        elif stock_symbol and stock_price_info:
+            return self._build_prompt_with_stock_price(stock_symbol, period, query, stock_price_info)
         elif stock_symbol:
             return self._build_prompt_for_missing_financial_report(stock_symbol, period, query)
         else:
             return self._build_prompt_without_context(query)
 
-    def _build_prompt_with_financial_reports(self, report_content: str, query: str) -> str:
+    def _build_prompt_with_financial_reports(self, report_content: str, query: str, stock_price_info: Optional[str] = None) -> str:
         """Build prompt string with financial report content."""
         financial_reports = f"""[FINANCIAL REPORTS]\n{report_content}\n[/FINANCIAL REPORTS]"""
         prompt_prefix = "Based on the financial reports provided, please answer the following question:"
+
+        if stock_price_info:
+             financial_reports += f"\n[STOCK_PRICE]\n{stock_price_info}\n[/STOCK_PRICE]"
 
         conversation_context = ""
         if self.conversation_history:
@@ -166,6 +187,24 @@ class ChatbotService:
         prompt_prefix = (
             "The user is asking about a financial report that is not available. "
             "Please inform them that the requested financial data is not available "
+            "and answer any general financial questions if possible:"
+        )
+
+        return f"""{context}\n{prompt_prefix}\n{query}"""
+
+    def _build_prompt_with_stock_price(self, stock_symbol: str, period: Optional[str], query: str, stock_price_info: str) -> str:
+        """Build prompt string when only stock price is available."""
+        period_info = f" for period {period}" if period else ""
+        context = f"""[STOCK_PRICE]\nCurrent stock price of {stock_symbol}{period_info}: {stock_price_info}.\n"""
+
+        if self.conversation_history:
+            context += f"Previous conversation:\n{chr(10).join(self.conversation_history)}\n"
+
+        context += "[/STOCK_PRICE]"
+
+        prompt_prefix = (
+            "The user is asking about a financial report that is not available. "
+            "Please inform them that only stock price is available "
             "and answer any general financial questions if possible:"
         )
 

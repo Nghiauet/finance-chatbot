@@ -155,3 +155,4 @@ env
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+src/services/tools/get_stock_infor.ipynb

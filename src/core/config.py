@@ -94,14 +94,14 @@ def get_logger(name, request_id=None):
     
     # Remove default logger and add custom configuration
     logger.remove()
-    logger.add(sys.stderr, format=format_string, level="DEBUG" if settings.DEBUG else "INFO")
+    logger.add(sys.stderr, format=format_string, level="TRACE")
     logger.add(
         LOGS_DIR / "app.log",
         rotation="10 MB",
         retention="1 week",
         format=format_string,
-        level="DEBUG",
+        level="TRACE",
         enqueue=True
     )
-    
     return logger.bind(name=name)
+logger = get_logger(__name__)
