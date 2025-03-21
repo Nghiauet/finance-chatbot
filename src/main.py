@@ -6,18 +6,22 @@ import argparse
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from langgraph.checkpoint.memory import MemorySaver
-
 from src.api.v1 import chat_api
 from src.core.config import settings
-from src.core.agent_manager import agent  # Import the agent from agent_manager
-
 # Create FastAPI app
 app = FastAPI(
     title="Finance Chatbot API",
     description="API for interacting with the finance chatbot",
     version="1.0.0",
 )
+# start event
+@app.on_event("startup")
+async def startup_event():
+    print("Starting up...")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    print("Shutting down...")
 
 # Set all CORS enabled origins
 if settings.BACKEND_CORS_ORIGINS:
@@ -32,9 +36,7 @@ if settings.BACKEND_CORS_ORIGINS:
 # Include routers
 app.include_router(chat_api.router, prefix=settings.API_PREFIX)
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    print("Shutting down...")
+
 
 @app.get("/")
 async def root():
