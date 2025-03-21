@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.v1 import chat_api
 from src.core.config import settings
+from src.services.tools.toolbox import save_finance_data_cache, finance_data_cache
 # Create FastAPI app
 app = FastAPI(
     title="Finance Chatbot API",
@@ -21,6 +22,8 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    # call the save_finance_data_cache function
+    save_finance_data_cache(finance_data_cache)
     print("Shutting down...")
 
 # Set all CORS enabled origins
