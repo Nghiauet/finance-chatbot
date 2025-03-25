@@ -5,11 +5,11 @@ import uuid
 from typing import Dict, List, Optional, AsyncGenerator
 
 from src.core.config import logger
-
 from src.services.llm_service import LLMService, get_llm_service
 from src.db.mongo_services import MongoService
 from src.core.config import llm_config
 from src.services.tools.toolbox import get_stock_price_from_vnstock
+from src.core import prompt
 import json
 
 class ChatbotService:
@@ -24,34 +24,13 @@ class ChatbotService:
         self.conversation_history: List[str] = []
         logger.info(f"Initialized Chatbot service with model: {model_name}, session: {self.session_id}")
 
-    def get_system_instruction(self) -> str:
-        """Get the system instruction for the chatbot."""
-        return """You are a helpful financial assistant that can provide information based on financial reports,
-        documents, or general knowledge. When answering:
-
-        1. If financial report data is provided, prioritize information from those reports.
-        2. If context is provided, use that as secondary information.
-        3. If neither financial reports nor context has the answer but you know it, provide a general answer
-           based on your financial knowledge.
-        4. Be concise and clear in your explanations.
-        5. Format financial data in a readable way.
-        6. When discussing financial metrics, define them briefly before analyzing them.
-        7. If you're unsure, acknowledge the limitations of your knowledge.
-        8. If the user asks about a topic that is not related to finance, acknowledge that you are not able to answer that question.
-        9. Always answer general financial questions like definitions of P/E ratio, ROI, or other common financial terms.
-        10. If analyzing multiple reports, highlight trends and changes over time.
-        11. answer questions in the same language as the question.
-        12. if the money amount is too big, round it to the nearest million or billion.
-        Financial reports, when available, are provided between [FINANCIAL REPORTS] tags.
-        Context, when available, is provided between [CONTEXT] tags."""
-
     async def process_query(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None) -> str:
         """Process a user query with context from financial reports."""
         try:
-            prompt = await self._build_prompt(query, stock_symbol, period)
+            prompt_text = await self._build_prompt(query, stock_symbol, period)
             response = self.llm_service.generate_content(
-                prompt=prompt,
-                system_instruction=self.get_system_instruction(),
+                prompt=prompt_text,
+                system_instruction=prompt.get_system_instruction(),
             )
 
             if response:
@@ -68,10 +47,10 @@ class ChatbotService:
     async def process_query_stream(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None):
         """Process a user query and stream the response."""
         try:
-            prompt = await self._build_prompt(query, stock_symbol, period)
+            prompt_text = await self._build_prompt(query, stock_symbol, period)
             response_stream = self.llm_service.generate_content_stream(
-                prompt=prompt,
-                system_instruction=self.get_system_instruction(),
+                prompt=prompt_text,
+                system_instruction=prompt.get_system_instruction(),
             )
             full_response = ""
 
@@ -83,8 +62,6 @@ class ChatbotService:
             
                 self.conversation_history.append(f"User: {query}")
                 self.conversation_history.append(f"Chatbot: {full_response}")
-                # logger.info(f"Conversation history: {self.conversation_history}")
-                # logger.info(f"Full response: {full_response}")
             
             return generate_stream()
 
@@ -116,99 +93,41 @@ class ChatbotService:
             except Exception as e:
                 logger.error(f"Error fetching stock price for {stock_symbol}: {e}")
 
+        return self._build_prompt_based_on_context(financial_report_content, stock_price_info, stock_symbol, period, query)
+
+    def _build_prompt_based_on_context(self, financial_report_content: Optional[str], stock_price_info: Optional[str], stock_symbol: Optional[str], period: Optional[str], query: str) -> str:
+        """Build prompt based on available context."""
         if financial_report_content and stock_price_info:
-            return self._build_prompt_with_financial_reports(financial_report_content, query, stock_price_info)
+            return prompt.build_prompt_with_financial_reports(
+                financial_report_content, 
+                query, 
+                self.conversation_history, 
+                stock_price_info
+            )
         elif financial_report_content:
-            return self._build_prompt_with_financial_reports(financial_report_content, query)
+            return prompt.build_prompt_with_financial_reports(
+                financial_report_content, 
+                query, 
+                self.conversation_history
+            )
         elif stock_symbol and stock_price_info:
-            return self._build_prompt_with_stock_price(stock_symbol, period, query, stock_price_info)
+            return prompt.build_prompt_with_stock_price(
+                stock_symbol, 
+                period, 
+                query, 
+                stock_price_info, 
+                self.conversation_history
+            )
         elif stock_symbol:
-            return self._build_prompt_for_missing_financial_report(stock_symbol, period, query)
+            return prompt.build_prompt_for_missing_financial_report(
+                stock_symbol, 
+                period, 
+                query, 
+                self.conversation_history
+            )
         else:
-            return self._build_prompt_without_context(query)
-
-    def _build_prompt_with_financial_reports(self, report_content: str, query: str, stock_price_info: Optional[str] = None) -> str:
-        """Build prompt string with financial report content."""
-        financial_reports = f"""[FINANCIAL REPORTS]\n{report_content}\n[/FINANCIAL REPORTS]"""
-        prompt_prefix = "Based on the financial reports provided, please answer the following question:"
-
-        if stock_price_info:
-             financial_reports += f"\n[STOCK_PRICE]\n{stock_price_info}\n[/STOCK_PRICE]"
-
-        conversation_context = ""
-        if self.conversation_history:
-            conversation_context = f"""[CONTEXT]\nPrevious conversation:\n{chr(10).join(self.conversation_history)}\n[/CONTEXT]\n"""
-        logger.info(f"Conversation context: {conversation_context}")
-        return f"""{financial_reports}\n\n{conversation_context}{prompt_prefix}\n{query}\n\nIf the financial reports don't contain information about this question but it's a general financial concept, please provide a helpful answer based on your financial knowledge."""
-
-    def _build_prompt_with_financial_reports_and_history(self, statement_content: str, query: str) -> str:
-        """Build prompt string with both financial reports and document context."""
-        financial_reports = f"""[FINANCIAL REPORTS]\n{statement_content}\n[/FINANCIAL REPORTS]"""
-
-        prompt_prefix = "Based on the financial reports and additional context provided, please answer the following question:"
-
-        conversation_context = ""
-        if self.conversation_history:
-            conversation_context = f"""[CONTEXT]\nPrevious conversation:\n{chr(10).join(self.conversation_history)}\n[/CONTEXT]\n"""
-
-        return f"""{financial_reports}\n\n{conversation_context}{prompt_prefix}\n{query}\n\nIf neither the financial reports nor the context contains information about this question but it's a general financial concept, please provide a helpful answer based on your financial knowledge."""
-
-    def _build_prompt_with_context(self, document_content: str, query: str) -> str:
-        """Build prompt string with document context."""
-        context = f"""[CONTEXT]\n{document_content}\n[/CONTEXT]"""
-        prompt_prefix = "Based on the above context, please answer the following question:"
-        if self.conversation_history:
-            context = f"""[CONTEXT]\nPrevious conversation:\n{chr(10).join(self.conversation_history)}\n[/CONTEXT]"""
-            prompt_prefix = "Based on the previous conversation, answer the following question:"
-
-        return f"""{context}\n{prompt_prefix}\n{query}\n\nIf neither the context nor the previous conversation contains information about this question but it's a general financial concept, please provide a helpful answer based on your financial knowledge."""
-
-    def _build_prompt_without_context(self, query: str) -> str:
-        """Build prompt string without document context."""
-        prompt_prefix = "You are a helpful financial assistant. Please answer the following question to the best of your ability:"
-        if self.conversation_history:
-            context = f"""[CONTEXT]\nPrevious conversation:\n{chr(10).join(self.conversation_history)}\n[/CONTEXT]"""
-            prompt_prefix = "Based on the previous conversation, answer the following question:"
-        else:
-            context = ""
-
-        return f"""{context}\n{prompt_prefix}\n{query}"""
-
-    def _build_prompt_for_missing_financial_report(self, stock_symbol: str, period: Optional[str], query: str) -> str:
-        """Build prompt string when financial report was requested but not found."""
-        period_info = f" for period {period}" if period else ""
-        context = f"""[CONTEXT]\nNo financial report was found for {stock_symbol}{period_info}.\n"""
-
-        if self.conversation_history:
-            context += f"Previous conversation:\n{chr(10).join(self.conversation_history)}\n"
-
-        context += "[/CONTEXT]"
-
-        prompt_prefix = (
-            "The user is asking about a financial report that is not available. "
-            "Please inform them that the requested financial data is not available "
-            "and answer any general financial questions if possible:"
-        )
-
-        return f"""{context}\n{prompt_prefix}\n{query}"""
-
-    def _build_prompt_with_stock_price(self, stock_symbol: str, period: Optional[str], query: str, stock_price_info: str) -> str:
-        """Build prompt string when only stock price is available."""
-        period_info = f" for period {period}" if period else ""
-        context = f"""[STOCK_PRICE]\nCurrent stock price of {stock_symbol}{period_info}: {stock_price_info}.\n"""
-
-        if self.conversation_history:
-            context += f"Previous conversation:\n{chr(10).join(self.conversation_history)}\n"
-
-        context += "[/STOCK_PRICE]"
-
-        prompt_prefix = (
-            "The user is asking about a financial report that is not available. "
-            "Please inform them that only stock price is available "
-            "and answer any general financial questions if possible:"
-        )
-
-        return f"""{context}\n{prompt_prefix}\n{query}"""
+            return prompt.build_prompt_without_context(query, self.conversation_history)
+    
 
 
 default_chatbot_service = ChatbotService()

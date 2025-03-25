@@ -157,3 +157,4 @@ yarn-debug.log*
 yarn-error.log*
 src/services/tools/get_stock_infor.ipynb
 finance_data_cache.json
+Experiments/*
