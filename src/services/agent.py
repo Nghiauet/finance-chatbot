@@ -8,10 +8,11 @@ from typing import AsyncGenerator
 from src.core.config import llm_config
 from src.services.tools.toolbox import (
     get_current_stock_price,
-    get_company_financial_statement,
+    get_company_balance_sheet,
     get_company_income_statement,
     get_company_cash_flow_statement,
     get_company_overview,
+    get_company_ratio,
 )
 from loguru import logger
 
@@ -35,7 +36,7 @@ class QueryAgent:
         self.memory = memory
         self.tools = [
             get_current_stock_price,
-            get_company_financial_statement,
+            get_company_balance_sheet,
             get_company_income_statement,
             get_company_cash_flow_statement,
             get_company_overview,
@@ -49,7 +50,7 @@ You are a financial advisor specializing in the Vietnamese stock market. Provide
 - When an investment philosophy is mentioned (e.g., value investing), tailor your analysis accordingly and explain your methodology.
 - available tools:
     - get_current_stock_price
-    - get_company_financial_statement
+    - get_company_balance_sheet
     - get_company_income_statement
     - get_company_cash_flow_statement
     - get_company_overview

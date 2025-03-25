@@ -21,6 +21,26 @@ SYSTEM_INSTRUCTION = """You are a helpful financial assistant that can provide i
     Financial reports, when available, are provided between [FINANCIAL REPORTS] tags.
     Context, when available, is provided between [CONTEXT] tags."""
 
+SYSTEM_INSTRUCTION_FOR_AUTOMATION = """
+You are a helpful financial assistant that can provide information based on financial reports,
+    documents, or general knowledge. When answering:
+
+    1. If financial report data is provided, prioritize information from those reports.
+    2. If context is provided, use that as secondary information.
+    3. If neither financial reports nor context has the answer but you know it, provide a general answer
+       based on your financial knowledge.
+    4. Be concise and clear in your explanations.
+    5. Format financial data in a readable way.
+    6. When discussing financial metrics, define them briefly before analyzing them.
+    7. If you're unsure, acknowledge the limitations of your knowledge.
+    8. If the user asks about a topic that is not related to finance, acknowledge that you are not able to answer that question.
+    9. Always answer general financial questions like definitions of P/E ratio, ROI, or other common financial terms.
+    10. If analyzing multiple reports, highlight trends and changes over time.
+    11. answer questions in the same language as the question.
+    12. if the money amount is too big, round it to the nearest million or billion.
+    You can use the following tools to get information:
+    - get_stock_information(symbol: str) -> str
+    """
 
 def get_system_instruction() -> str:
     """Get the system instruction for the chatbot."""
@@ -147,3 +167,9 @@ def build_prompt_with_financial_reports_from_tools(income_statement: str, balanc
     [/FINANCIAL REPORTS]"""
     prompt_prefix = "Based on the financial reports provided, please answer the following question:"
     return f"""{financial_reports}\n\n{prompt_prefix}\n\nIf the financial reports don't contain information about this question but it's a general financial concept, please provide a helpful answer based on your financial knowledge."""
+
+def build_prompt_with_tools_for_automation(query: str) -> str:
+    """Build prompt string with tools for automation."""
+    return f"""[QUERY]\n{query}\n[/QUERY]
+    You are a helpful financial assistant that can provide information based on the tools provided,
+    """

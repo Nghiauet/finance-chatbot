@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Dict, List, Optional, AsyncGenerator
 
-from src.core.config import logger
+from loguru import logger
 from src.services.llm_service import LLMService, get_llm_service
 from src.db.mongo_services import MongoService
 from src.core.config import llm_config
@@ -86,29 +86,30 @@ class ChatbotService:
             except:
                 return [stock_symbol.symbol]
         return None
-    # async def automation_flow(self, query: str):
-    #     """Automate the flow of the query in case the query is not a stock symbol."""
-    #     stock_symbols = await self.get_stock_symbols_from_query(query)
-    #     if stock_symbols:
-    #         for stock_symbol in stock_symbols:
-    #             stock_info = await self.get_stock_info(stock_symbol)
-    #             if stock_info:
-    #                 return stock_info
-    #     return None
-    # async def get_stock_info(self, stock_symbol: str):
-    #     """Get the stock info."""
-    #     stock_info = await self.mongo_service.get_stock_info(stock_symbol)
-    #     if stock_info:
-    #         return stock_info
-    #     return None
-    def get_financial_report_from_tools(self, stock_symbol: str, period: Optional[str] = None) -> Optional[str]:
+
+    async def automation_flow(self, query: str) -> Optional[str]:
         """Get the financial report from the tools."""
-        income_statement = toolbox.get_company_income_statement(stock_symbol)
-        balance_sheet = toolbox.get_company_balance_sheet(stock_symbol)
-        cash_flow_statement = toolbox.get_company_cash_flow_statement(stock_symbol)
-        company_overview = toolbox.get_company_overview(stock_symbol)
-        financial_report = prompt.build_prompt_with_financial_reports_from_tools(income_statement, balance_sheet, cash_flow_statement, company_overview,period)
-        return financial_report
+        tools = [toolbox.get_stock_information]
+        prompt_with_tools = prompt.build_prompt_with_tools_for_automation(query)
+        response = self.llm_service.generate_content_with_tools(prompt = prompt_with_tools, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
+        return response
+    
+    async def automation_flow_stream(self, query: str) -> AsyncGenerator[str, None]:
+        """Get the financial report from the tools."""
+        tools = [toolbox.get_stock_information]
+        prompt_with_context = prompt.build_prompt_without_context(query, self.conversation_history)
+        response_stream = self.llm_service.generate_content_with_tools(prompt = prompt_with_context, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
+        full_response = ""
+        async def generate_stream():
+            nonlocal full_response  # Allow modification of full_response in the outer scope
+            for chunk in response_stream:
+                full_response += chunk
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            self.conversation_history.append(f"User: {query}")
+            self.conversation_history.append(f"Chatbot: {full_response}")
+        
+        return generate_stream()
+
     async def _build_prompt(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None) -> str:
         """Build the appropriate prompt based on available context."""
         financial_report_content = None
@@ -117,6 +118,7 @@ class ChatbotService:
         if stock_symbol is None:
             stock_symbols = await self.get_stock_symbols_from_query(query)
             stock_symbol = stock_symbols[0] if stock_symbols else None
+            logger.info(f"Stock symbol: {stock_symbol}")
 
         if stock_symbol:
             financial_report = await self.mongo_service.get_financial_report_by_symbol_and_period(stock_symbol, period)

@@ -150,14 +150,21 @@ class LLMService:
                 config = {
                     "tools": operation_tools,
                     "automatic_function_calling": {"disable": False},
-                    "system_instruction": system_instruction,
-                }
+                        'tool_config': {
+                    'function_calling_config': {
+                        'mode': 'AUTO'
+                    }
+                },
+                "system_instruction": system_instruction,
+            }
             )
-            response = chat.send_message(
+            response = chat.send_message_stream(
                 prompt
             )
 
-            return response.text
+            for chunk in response:
+                yield chunk.text
+                
                 
         except Exception as e:
             logger.error(f"Error generating content with tools: {str(e)}")

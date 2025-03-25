@@ -45,8 +45,8 @@ async def chat_stream(query: ChatQuery):
         logger.info(f"Query: {query.query}")
         logger.info(f"Company: {query.company}")
         logger.info(f"Period: {query.period}")
-        response_stream = await chatbot.process_query_stream(
-            query=query.query, stock_symbol=query.company, period=query.period
+        response_stream = await chatbot.automation_flow_stream(
+            query=query.query
         )
 
         return StreamingResponse(response_stream, media_type="text/event-stream")
@@ -59,6 +59,15 @@ async def chat_agent(query: ChatQuery):
     """Process a chat query using the agent."""
     response = agent._get_answer(query.query,session_id=query.session_id)
     return response
+
+# @router.post("/chat-automation")
+# async def chat_automation(query: ChatQuery):
+#     """Process a chat query using the agent."""
+#     chatbot = get_chatbot_service(session_id=query.session_id)
+#     logger.info(f"Session ID: {query.session_id}")
+#     logger.info(f"Query: {query.query}")
+#     response = await chatbot.automation_flow(query.query)
+#     return response
 
 @router.post("/clear-chat", response_model=ClearChatResponse)
 async def clear_chat(session_id: str = Query(..., description="Session ID to clear")):
