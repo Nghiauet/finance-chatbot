@@ -4,5 +4,8 @@
     },
     "MSH": {
         "stock_price": 59000
+    },
+    "FPT": {
+        "stock_price": 126500
     }
 }

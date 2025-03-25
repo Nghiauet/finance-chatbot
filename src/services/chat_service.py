@@ -8,9 +8,13 @@ from src.core.config import logger
 from src.services.llm_service import LLMService, get_llm_service
 from src.db.mongo_services import MongoService
 from src.core.config import llm_config
-from src.services.tools.toolbox import get_stock_price_from_vnstock
+from src.services.tools import toolbox
 from src.core import prompt
 import json
+from pydantic import BaseModel
+class StockSymbol(BaseModel):
+    """Stock symbol model."""
+    symbol: str
 
 class ChatbotService:
     """Service for handling chatbot interactions using financial reports."""
@@ -69,10 +73,50 @@ class ChatbotService:
             logger.error(f"Error processing query: {e}")
             raise
 
+    async def get_stock_symbols_from_query(self, query: str) -> Optional[List[str]]:
+        """Get the stock symbol from the query."""
+        prompt_text = prompt.build_prompt_for_extract_stock_symbol(query)
+        stock_symbol_model = StockSymbol(symbol=query)
+        stock_symbol = self.llm_service.generate_content_with_structured_output(prompt_text, stock_symbol_model)
+        if stock_symbol:
+            try:
+                parsed_stock_symbol = stock_symbol.parsed
+                list_stock_symbol = [stock_symbol.symbol for stock_symbol in parsed_stock_symbol]
+                return list_stock_symbol
+            except:
+                return [stock_symbol.symbol]
+        return None
+    # async def automation_flow(self, query: str):
+    #     """Automate the flow of the query in case the query is not a stock symbol."""
+    #     stock_symbols = await self.get_stock_symbols_from_query(query)
+    #     if stock_symbols:
+    #         for stock_symbol in stock_symbols:
+    #             stock_info = await self.get_stock_info(stock_symbol)
+    #             if stock_info:
+    #                 return stock_info
+    #     return None
+    # async def get_stock_info(self, stock_symbol: str):
+    #     """Get the stock info."""
+    #     stock_info = await self.mongo_service.get_stock_info(stock_symbol)
+    #     if stock_info:
+    #         return stock_info
+    #     return None
+    def get_financial_report_from_tools(self, stock_symbol: str, period: Optional[str] = None) -> Optional[str]:
+        """Get the financial report from the tools."""
+        income_statement = toolbox.get_company_income_statement(stock_symbol)
+        balance_sheet = toolbox.get_company_balance_sheet(stock_symbol)
+        cash_flow_statement = toolbox.get_company_cash_flow_statement(stock_symbol)
+        company_overview = toolbox.get_company_overview(stock_symbol)
+        financial_report = prompt.build_prompt_with_financial_reports_from_tools(income_statement, balance_sheet, cash_flow_statement, company_overview,period)
+        return financial_report
     async def _build_prompt(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None) -> str:
         """Build the appropriate prompt based on available context."""
         financial_report_content = None
         stock_price_info = None
+        # if stock_symbol is None, get the stock symbol from the query
+        if stock_symbol is None:
+            stock_symbols = await self.get_stock_symbols_from_query(query)
+            stock_symbol = stock_symbols[0] if stock_symbols else None
 
         if stock_symbol:
             financial_report = await self.mongo_service.get_financial_report_by_symbol_and_period(stock_symbol, period)
@@ -80,11 +124,18 @@ class ChatbotService:
                 financial_report_content = financial_report.get('content', '')
                 logger.info(f"Retrieved financial report for {stock_symbol} ({period})")
             else:
-                logger.warning(f"No financial report found for symbol {stock_symbol} and period {period}")
+                logger.warning(f"No financial report found for symbol {stock_symbol} and period {period} in the database get from tools")
+                financial_report = self.get_financial_report_from_tools(stock_symbol, period)
+                if financial_report:
+                    financial_report_content = financial_report
+                    logger.info(f"Retrieved financial report for {stock_symbol} ({period}) from tools")
+                else:
+                    logger.warning(f"Could not retrieve financial report for {stock_symbol} ({period}) from tools") 
+            
             
             # Fetch stock price
             try:
-                stock_price = get_stock_price_from_vnstock(stock_symbol)
+                stock_price = toolbox.get_stock_price_from_vnstock(stock_symbol)
                 if stock_price:
                     stock_price_info = f"Current stock price of {stock_symbol}: {stock_price}"
                     logger.info(f"Retrieved stock price for {stock_symbol}: {stock_price}")
@@ -154,12 +205,10 @@ if __name__ == "__main__":
 
     async def main():
         chatbot = get_chatbot_service()
-        query = "Phân tích chi tiết về công ty này"
-        period = "2024"
-        stock_symbol = "VNM"
+        query = "Lợi nhuận của TCB trong quý năm ngoái"
 
-        response_stream = await chatbot.process_query_stream(query, stock_symbol, period)
-        for chunk in response_stream:
-            print(chunk, end="", flush=True)
+
+        response_stream = await chatbot.process_query(query)
+        print(response_stream)
 
     asyncio.run(main())

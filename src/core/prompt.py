@@ -113,3 +113,37 @@ def build_prompt_with_stock_price(stock_symbol: str, period: Optional[str], quer
     )
 
     return f"""{context}\n{prompt_prefix}\n{query}"""
+
+def build_prompt_with_tools(query: str) -> str:
+    """Build prompt string with tools."""   
+    return f"""[QUERY]\n{query}\n[/QUERY]
+    You are a helpful financial assistant that can provide information based on financial reports,
+    You can use the following tools to get information:
+    - get_stock_price_from_vnstock(symbol: str) -> float
+    - get_company_overview_from_vnstock(symbol: str) -> str
+    - get_company_financial_statement_from_vnstock(symbol: str) -> str
+    - get_company_income_statement_from_vnstock(symbol: str) -> str
+    - get_company_cash_flow_statement_from_vnstock(symbol: str) -> str
+    documents, or general knowledge. When answering:
+
+    1. If financial report data is provided, prioritize information from those reports.
+    2. If context is provided, use that as secondary information.
+    """
+def build_prompt_for_extract_stock_symbol(query: str) -> str:
+    """Build prompt string for extracting stock symbol from query."""
+    return f"""[QUERY]\n{query}\n[/QUERY]
+    You are a helpful financial assistant that can provide information based on financial reports,
+    documents, or general knowledge. When answering:
+    - Extract the stock symbol from the query.
+    - If the query is not about a stock, return None.
+    """
+def build_prompt_with_financial_reports_from_tools(income_statement: str, balance_sheet: str, cash_flow_statement: str, company_overview: str, period: Optional[str] = None) -> str:
+    """Build prompt string with financial report content."""
+    financial_reports = f"""[FINANCIAL REPORTS]\n\
+    Income Statement: {income_statement}\n\
+    Balance Sheet: {balance_sheet}\n\
+    Cash Flow Statement: {cash_flow_statement}\n\
+    Company Overview: {company_overview}\n\
+    [/FINANCIAL REPORTS]"""
+    prompt_prefix = "Based on the financial reports provided, please answer the following question:"
+    return f"""{financial_reports}\n\n{prompt_prefix}\n\nIf the financial reports don't contain information about this question but it's a general financial concept, please provide a helpful answer based on your financial knowledge."""

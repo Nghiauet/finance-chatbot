@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types
 from src.core.config import llm_config
 from loguru import logger
-
+from pydantic import BaseModel
 
 class LLMService:
     """Service for interacting with Google's Gemini AI models."""
@@ -128,7 +128,55 @@ class LLMService:
             logger.error(f"Error generating content stream: {str(e)}")
             yield None
 
+    def generate_content_with_tools(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        operation_tools: Optional[List[Callable]] = None
+    ) -> Optional[str]:
+        """
+        Generate content using the Gemini model with function calling tools.
+        
+        Args:
+            prompt: The text prompt to send to the model
+            system_instruction: Optional system instruction for the model
+            
+        Returns:
+            Generated text or None if generation failed
+        """
+        try:
+            chat = self.client.chats.create(
+                model = self.model_name,
+                config = {
+                    "tools": operation_tools,
+                    "automatic_function_calling": {"disable": False},
+                    "system_instruction": system_instruction,
+                }
+            )
+            response = chat.send_message(
+                prompt
+            )
 
+            return response.text
+                
+        except Exception as e:
+            logger.error(f"Error generating content with tools: {str(e)}")
+            return None
+
+    def generate_content_with_structured_output(
+        self,
+        prompt: str,
+        structured_output: BaseModel
+    ) -> Optional[BaseModel]:
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=[prompt],
+            config={
+                'response_mime_type': 'application/json',
+                'response_schema': list[structured_output],
+            },
+        )
+        return response
 # Singleton instance for easy import
 default_llm_service = LLMService()
 
@@ -154,9 +202,7 @@ def get_llm_service(model_name: str = llm_config.default_model) -> LLMService:
 
 if __name__ == "__main__":
     llm_service = get_llm_service()
-    # Test the streaming
-    prompt = "How to use the Gemini API?"
-    response_stream = llm_service.generate_content_stream(prompt)
-    for chunk in response_stream:
-        if chunk:
-            print(chunk, end="", flush=True)
+    # Test the function calling
+    prompt = "What is the current stock price of FPT?"
+    response = llm_service.generate_content_with_tools(prompt)
+    print(response)

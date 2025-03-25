@@ -59,7 +59,6 @@ def update_cache(data_type: str, symbol: str, data):
     logger.debug(f"Updated cache with {data_type} for {symbol}")
 
 
-@lru_cache(maxsize=128)
 def get_stock_price_from_vnstock(symbol: str) -> Optional[float]:
     """Get stock price using VnStock API.
 
@@ -89,7 +88,6 @@ def get_stock_price_from_vnstock(symbol: str) -> Optional[float]:
         return None
 
 
-@lru_cache(maxsize=128)
 def get_company_overview_from_vnstock(symbol: str) -> Optional[str]:
     """Get company overview information using VnStock API.
 
@@ -154,7 +152,6 @@ def _get_financial_statement_from_vnstock(symbol: str, statement_type: str, vnst
         return None
 
 
-@lru_cache(maxsize=128)
 def get_company_financial_statement_from_vnstock(symbol: str) -> Optional[str]:
     """Get company financial statement information using VnStock API.
 
@@ -171,7 +168,6 @@ def get_company_financial_statement_from_vnstock(symbol: str) -> Optional[str]:
     )
 
 
-@lru_cache(maxsize=128)
 def get_company_income_statement_from_vnstock(symbol: str) -> Optional[str]:
     """Get company income statement information using VnStock API.
 
@@ -188,7 +184,6 @@ def get_company_income_statement_from_vnstock(symbol: str) -> Optional[str]:
     )
 
 
-@lru_cache(maxsize=128)
 def get_company_cash_flow_statement_from_vnstock(symbol: str) -> Optional[str]:
     """Get company cash flow statement information using VnStock API.
 
@@ -205,7 +200,6 @@ def get_company_cash_flow_statement_from_vnstock(symbol: str) -> Optional[str]:
     )
 
 
-@tool
 def get_current_stock_price(symbol: str) -> float:
     """Get the current stock price of a given symbol.
 
@@ -228,7 +222,6 @@ def get_current_stock_price(symbol: str) -> float:
     return price
 
 
-@tool
 def get_company_financial_statement(symbol: str) -> str:
     """Get the company balance sheet (financial statement) of a given symbol.
 
@@ -252,7 +245,6 @@ def get_company_financial_statement(symbol: str) -> str:
     return financial_statement
 
 
-@tool
 def get_company_income_statement(symbol: str) -> str:
     """Get the company income statement of a given symbol.
 
@@ -276,7 +268,6 @@ def get_company_income_statement(symbol: str) -> str:
     return income_statement
 
 
-@tool
 def get_company_overview(symbol: str) -> str:
     """Get the company overview of a given symbol."""
     overview = get_company_overview_from_vnstock(symbol)
@@ -287,7 +278,6 @@ def get_company_overview(symbol: str) -> str:
     return overview
 
 
-@tool
 def get_company_cash_flow_statement(symbol: str) -> str:
     """Get the company cash flow statement of a given symbol.
 
