@@ -2,279 +2,433 @@ import json
 import os
 import atexit
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Callable, Any
-from functools import lru_cache
-
-from langchain_core.tools import tool
-from vnstock import Vnstock
-
+import pandas as pd
 from loguru import logger
+
+from vnstock import Vnstock
 
 # Constants
 FINANCE_DATA_CACHE_FILE = "finance_data_cache.json"
-DEFAULT_CONFIG = {
-    "period": "annual",
-    "lang": "en",
-    "dropna": True
-}
-
-# Cache management
+DEFAULT_PERIOD = "annual"
 finance_data_cache = {}
 
-def load_finance_data_cache() -> Dict:
-    """Loads finance data from the cache file."""
-    logger.info(f"Loading finance data cache from {FINANCE_DATA_CACHE_FILE}")
+# Basic cache functions
+def load_cache():
+    """Load the finance data cache from file"""
     if not os.path.exists(FINANCE_DATA_CACHE_FILE):
-        logger.warning(f"Finance data cache file {FINANCE_DATA_CACHE_FILE} does not exist. Creating a new one.")
+        logger.warning(f"Cache file {FINANCE_DATA_CACHE_FILE} not found. Creating new cache.")
         return {}
+        
     try:
         with open(FINANCE_DATA_CACHE_FILE, "r") as f:
             return json.load(f)
     except json.JSONDecodeError:
-        logger.warning("Finance data cache file is corrupted. Creating a new one.")
+        logger.warning("Cache file corrupted. Creating new cache.")
         return {}
 
-
-def save_finance_data_cache(data: Dict):
-    """Saves finance data to the cache file."""
-    logger.info(f"Saving finance data cache to {FINANCE_DATA_CACHE_FILE}")
+def save_cache():
+    """Save the finance data cache to file"""
     try:
         with open(FINANCE_DATA_CACHE_FILE, "w") as f:
-            json.dump(data, f, indent=4)
+            json.dump(finance_data_cache, f, indent=4)
+        logger.info(f"Cache saved to {FINANCE_DATA_CACHE_FILE}")
     except Exception as e:
-        logger.error(f"Error saving finance data cache: {e}")
+        logger.error(f"Error saving cache: {e}")
 
-
-def get_cached_data(data_type: str, symbol: str) -> Optional[Any]:
-    """Retrieves data from the cache."""
-    if symbol in finance_data_cache and data_type in finance_data_cache[symbol]:
-        logger.debug(f"Returning cached {data_type} for {symbol}")
-        return finance_data_cache[symbol][data_type]
-    logger.debug(f"No cached {data_type} for {symbol}")
-    return None
-
-
-def update_cache(data_type: str, symbol: str, data: Any):
-    """Updates the cache with new data."""
-    if symbol not in finance_data_cache:
-        finance_data_cache[symbol] = {}
-    finance_data_cache[symbol][data_type] = data
-    logger.debug(f"Updated cache with {data_type} for {symbol}")
-
-
-# Stock client helper
-def finance_client(symbol: str):
-    """Returns a VnStock client for the specified symbol."""
-    return Vnstock().stock(symbol=symbol, source="VCI")
-
-
-# Data retrieval functions
-def get_stock_price_from_vnstock(symbol: str) -> Optional[float]:
-    """Get stock price using VnStock API."""
-    # cached_price = get_cached_data("stock_price", symbol)
-    # if cached_price:
-    #     return cached_price
-
+# Stock data functions
+def get_stock_price(symbol):
+    """Get current stock price for a symbol"""
     try:
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        
         df = Vnstock().stock(source="TCBS", symbol=symbol).quote.history(
             symbol=symbol, start=start_date, end=end_date, interval="1D"
         )
-        logger.debug(f"Found price for {symbol} from TCBS")
+        
         price = int(float(df.iloc[-1]["close"]) * 1000)
-        # update_cache("stock_price", symbol, price)
+        logger.info(f"Price for {symbol}: {price}")
         return price
     except Exception as e:
         logger.error(f"Error getting price for {symbol}: {e}")
         return None
 
-
-def get_company_overview_from_vnstock(symbol: str) -> Optional[str]:
-    """Get company overview information using VnStock API."""
-    cached_overview = get_cached_data("company_overview", symbol)
-    if cached_overview:
-        return cached_overview
-
-    logger.info(f"Getting company overview for {symbol}")
+def format_number(number):
+    """Format large numbers for better readability"""
+    if number is None:
+        return "N/A"
+    
     try:
-        overview = finance_client(symbol).company.overview()
-        overview_markdown = overview.to_markdown()
-        if overview_markdown is None:
-            logger.error(f"Could not retrieve overview for symbol {symbol}")
+        if isinstance(number, (int, float)):
+            if number >= 1_000_000_000:
+                return f"{number/1_000_000_000:.2f} billion"
+            elif number >= 1_000_000:
+                return f"{number/1_000_000:.2f} million"
+            elif number >= 1_000:
+                return f"{number/1_000:.2f} thousand"
+            else:
+                return f"{number:,}"
+        return str(number)
+    except:
+        return str(number)
+
+def get_company_overview(symbol):
+    """Get company overview"""
+    cache_key = f"{symbol}_overview"
+    
+    # Check cache first
+    if cache_key in finance_data_cache:
+        logger.debug(f"Using cached overview for {symbol}")
+        return finance_data_cache[cache_key]
+    
+    # Fetch fresh data
+    logger.info(f"Fetching overview for {symbol}")
+    try:
+        client = Vnstock().stock(symbol=symbol, source="VCI")
+        overview_df = client.company.overview()
+        
+        # Format the overview data into a readable markdown
+        if not overview_df.empty:
+            row = overview_df.iloc[0]
+            
+            # Basic company information
+            company_info = f"## Company Information\n"
+            company_info += f"**Symbol**: {row.get('symbol', 'N/A')}\n"
+            company_info += f"**Charter Capital**: {format_number(row.get('charter_capital', 0))} VND\n"
+            company_info += f"**Outstanding Shares**: {format_number(row.get('issue_share', 0))}\n"
+            
+            # Industry classification
+            industry_info = f"\n## Industry Classification\n"
+            industry_info += f"**Sector**: {row.get('icb_name2', 'N/A')}\n"
+            industry_info += f"**Industry Group**: {row.get('icb_name3', 'N/A')}\n"
+            industry_info += f"**Sub-industry**: {row.get('icb_name4', 'N/A')}\n"
+            
+            # Company profile (with formatting for readability)
+            profile = row.get('company_profile', '')
+            if profile:
+                profile_info = f"\n## Company Profile\n{profile}\n"
+            else:
+                profile_info = "\n## Company Profile\nNo profile available.\n"
+            
+            # Company history (if available)
+            history = row.get('history', '')
+            if history:
+                history_info = f"\n## Company History\n{history}\n"
+            else:
+                history_info = "\n## Company History\nNo history available.\n"
+            
+            # Combine all sections
+            overview_data = company_info + industry_info + profile_info + history_info
+        else:
+            overview_data = "No company overview data available."
+        
+        # Update cache
+        finance_data_cache[cache_key] = overview_data
+        
+        return overview_data
+    except Exception as e:
+        logger.error(f"Error getting overview for {symbol}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return "Error retrieving company overview."
+
+def format_ratio_dataframe(df):
+    """Format ratio DataFrame for better readability"""
+    # Create a copy to avoid modifying the original
+    formatted_df = df.copy()
+    
+    # Reset the multi-level column index to a single level
+    if isinstance(formatted_df.columns, pd.MultiIndex):
+        # Extract the last level of the MultiIndex (the actual ratio name)
+        new_columns = [col[-1] if isinstance(col, tuple) else col for col in formatted_df.columns]
+        formatted_df.columns = new_columns
+    
+    # Find and rename ticker and year columns
+    if '(Meta, CP)' in formatted_df.columns:
+        formatted_df.rename(columns={'(Meta, CP)': 'ticker'}, inplace=True)
+    if '(Meta, Năm)' in formatted_df.columns:
+        formatted_df.rename(columns={'(Meta, Năm)': 'year'}, inplace=True)
+    elif 'yearReport' in formatted_df.columns:
+        formatted_df.rename(columns={'yearReport': 'year'}, inplace=True)
+    
+    # Organize columns by category
+    column_categories = {
+        'Valuation': ['P/B', 'P/E', 'P/S', 'P/Cash Flow', 'EPS (VND)', 'BVPS (VND)', 'EV/EBITDA', 'Vốn hóa (Tỷ đồng)', 'Số CP lưu hành (Triệu CP)'],
+        'Profitability': ['Biên lợi nhuận gộp (%)', 'Biên lợi nhuận ròng (%)', 'ROE (%)', 'ROA (%)', 'ROIC (%)', 'Biên EBIT (%)', 'EBITDA (Tỷ đồng)', 'EBIT (Tỷ đồng)', 'Tỷ suất cổ tức (%)'],
+        'Liquidity': ['Chỉ số thanh toán hiện thời', 'Chỉ số thanh toán tiền mặt', 'Chỉ số thanh toán nhanh', 'Khả năng chi trả lãi vay', 'Đòn bẩy tài chính'],
+        'Efficiency': ['Vòng quay tài sản', 'Vòng quay TSCĐ', 'Số ngày thu tiền bình quân', 'Số ngày tồn kho bình quân', 'Số ngày thanh toán bình quân', 'Chu kỳ tiền', 'Vòng quay hàng tồn kho'],
+        'Capital Structure': ['(Vay NH+DH)/VCSH', 'Nợ/VCSH', 'TSCĐ / Vốn CSH', 'Vốn CSH/Vốn điều lệ']
+    }
+    
+    # Construct a well-organized DataFrame
+    result_dict = {
+        'Category': [],
+        'Metric': [],
+        'Value': []
+    }
+    
+    # Start with metadata
+    if 'ticker' in formatted_df.columns:
+        ticker = formatted_df.iloc[0]['ticker']
+    else:
+        ticker = 'Unknown'
+        
+    if 'year' in formatted_df.columns:
+        year = formatted_df.iloc[0]['year']
+    else:
+        year = 'Unknown'
+    
+    # Find all columns present in the DataFrame
+    for category, metrics in column_categories.items():
+        for metric in metrics:
+            col_match = None
+            # Try to find exact match
+            if metric in formatted_df.columns:
+                col_match = metric
+            # Try to find partial match (for multi-level columns that might have been flattened)
+            else:
+                for col in formatted_df.columns:
+                    if isinstance(col, str) and metric in col:
+                        col_match = col
+                        break
+            
+            if col_match is not None and not pd.isna(formatted_df.iloc[0][col_match]):
+                result_dict['Category'].append(category)
+                result_dict['Metric'].append(metric)
+                result_dict['Value'].append(formatted_df.iloc[0][col_match])
+    
+    # Create a new DataFrame from our organized data
+    result_df = pd.DataFrame(result_dict)
+    
+    # Format the markdown
+    header = f"# Financial Ratios for {ticker} ({year})\n\n"
+    markdown = header
+    
+    # Group by category and create markdown sections
+    for category, group in result_df.groupby('Category'):
+        markdown += f"## {category}\n\n"
+        markdown += group[['Metric', 'Value']].to_markdown(index=False) + "\n\n"
+    
+    return markdown
+
+def get_financial_data(symbol, statement_type, year=None):
+    """Get financial data for a specific year"""
+    cache_key = f"{symbol}_{statement_type}"
+    if year:
+        cache_key += f"_year_{year}"
+    
+    # Check cache first
+    if cache_key in finance_data_cache:
+        logger.debug(f"Using cached data for {cache_key}")
+        return finance_data_cache[cache_key]
+    
+    # Fetch fresh data
+    logger.info(f"Fetching {statement_type} for {symbol}")
+    try:
+        client = Vnstock().stock(symbol=symbol, source="VCI")
+        
+        if statement_type == "balance_sheet":
+            statement_df = client.finance.balance_sheet(period=DEFAULT_PERIOD)
+            year_column = 'yearReport'
+        elif statement_type == "income_statement":
+            statement_df = client.finance.income_statement(period=DEFAULT_PERIOD)
+            year_column = 'yearReport'
+        elif statement_type == "cash_flow":
+            statement_df = client.finance.cash_flow(period=DEFAULT_PERIOD)
+            year_column = 'yearReport'
+        elif statement_type == "ratio":
+            statement_df = client.finance.ratio(period=DEFAULT_PERIOD)
+            # For ratio, the year might be in '(Meta, Năm)' column based on the provided structure
+            if '(Meta, Năm)' in statement_df.columns:
+                year_column = '(Meta, Năm)'
+            else:
+                # Fallback to first column that contains 'year' or 'Năm'
+                for col in statement_df.columns:
+                    if isinstance(col, tuple) and ('year' in col[-1].lower() or 'năm' in col[-1].lower()):
+                        year_column = col
+                        break
+                else:
+                    year_column = 'yearReport'  # Default fallback
+        else:
             return None
-        update_cache("company_overview", symbol, overview_markdown)
-        return overview_markdown
+        
+        # Process based on request type
+        if year:
+            # Find specific year
+            if isinstance(year_column, tuple):
+                # For MultiIndex columns
+                year_int = int(year)
+                year_rows = statement_df[statement_df[year_column] == year_int]
+            else:
+                # For regular columns
+                year_int = int(year)
+                year_rows = statement_df[statement_df[year_column] == year_int]
+                
+            if year_rows.empty:
+                available_years = statement_df[year_column].unique().tolist()
+                logger.warning(f"Year {year} not found for {symbol}. Available years: {available_years}")
+                
+                # Special handling for ratio DataFrame
+                if statement_type == "ratio":
+                    result = format_ratio_dataframe(statement_df.iloc[[0]])
+                else:
+                    result = statement_df.iloc[0].to_markdown()  # Default to latest
+            else:
+                # Special handling for ratio DataFrame
+                if statement_type == "ratio":
+                    result = format_ratio_dataframe(year_rows)
+                else:
+                    result = year_rows.iloc[0].to_markdown()
+        else:
+            # Default to latest year
+            if statement_type == "ratio":
+                result = format_ratio_dataframe(statement_df.iloc[[0]])
+            else:
+                result = statement_df.iloc[0].to_markdown()
+        
+        # Update cache
+        finance_data_cache[cache_key] = result
+        
+        return result
+        
     except Exception as e:
-        logger.error(f"Error getting company overview for {symbol}: {e}")
+        logger.error(f"Error getting {statement_type} for {symbol}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
+def get_balance_sheet(symbol, year=None):
+    """Get balance sheet for specific year"""
+    return get_financial_data(symbol, "balance_sheet", year)
 
-def _get_financial_data(symbol: str, data_type: str, get_data_func: Callable) -> Optional[str]:
-    """Generic function to get financial data using VnStock API with caching."""
-    cached_data = get_cached_data(data_type, symbol)
-    if cached_data:
-        return cached_data
+def get_income_statement(symbol, year=None):
+    """Get income statement for specific year"""
+    return get_financial_data(symbol, "income_statement", year)
 
+def get_cash_flow(symbol, year=None):
+    """Get cash flow statement for specific year"""
+    return get_financial_data(symbol, "cash_flow", year)
+
+def get_financial_ratios(symbol, year=None):
+    """Get financial ratios for specific year"""
+    return get_financial_data(symbol, "ratio", year)
+def get_available_years(symbol, statement_type="income_statement"):
+    """Get list of available years for the given symbol"""
     try:
-        logger.info(f"Getting {data_type} for {symbol}")
-        data = get_data_func()
-        if data is None:
-            logger.error(f"Could not retrieve {data_type} for symbol {symbol}")
-            return None
-        update_cache(data_type, symbol, data)
-        return data
+        client = Vnstock().stock(symbol=symbol, source="VCI")
+        
+        if statement_type == "balance_sheet":
+            statement_df = client.finance.balance_sheet(period=DEFAULT_PERIOD)
+            year_column = 'yearReport'
+        elif statement_type == "income_statement":
+            statement_df = client.finance.income_statement(period=DEFAULT_PERIOD)
+            year_column = 'yearReport'
+        elif statement_type == "cash_flow":
+            statement_df = client.finance.cash_flow(period=DEFAULT_PERIOD)
+            year_column = 'yearReport'
+        elif statement_type == "ratio":
+            statement_df = client.finance.ratio(period=DEFAULT_PERIOD)
+            # For ratio, check if '(Meta, Năm)' exists
+            if '(Meta, Năm)' in statement_df.columns:
+                year_column = '(Meta, Năm)'
+            else:
+                # Try to find year column in MultiIndex columns
+                for col in statement_df.columns:
+                    if isinstance(col, tuple) and ('year' in col[-1].lower() or 'năm' in col[-1].lower()):
+                        year_column = col
+                        break
+                else:
+                    year_column = 'yearReport'  # Default fallback
+        else:
+            return []
+            
+        # Extract years
+        years = statement_df[year_column].unique().tolist()
+        return [str(year) for year in years]
+        
     except Exception as e:
-        logger.error(f"Error getting {data_type} for {symbol}: {e}")
-        return None
+        logger.error(f"Error getting available years for {symbol}: {e}")
+        return []
 
+def get_stock_information(symbol, year=None):
+    """Get comprehensive stock information for a specific year"""
+    price = get_stock_price(symbol)
+    overview = get_company_overview(symbol)
+    
+    year_info = f" (Year: {year})" if year else " (Latest year)"
+    
+    # Get each statement for the specified year
+    balance_sheet_md = get_balance_sheet(symbol, year=year)
+    income_md = get_income_statement(symbol, year=year)
+    cash_flow_md = get_cash_flow(symbol, year=year)
+    ratios_md = get_financial_ratios(symbol, year=year)
+    
+    return f"""[STOCK INFORMATION]{year_info}
+Symbol: {symbol}
+Price: {price}
 
-def _get_financial_statement(symbol: str, statement_type: str, get_statement_func: Callable) -> Optional[str]:
-    """Get financial statement with consistent formatting."""
-    try:
-        statement_df = get_statement_func(period=DEFAULT_CONFIG["period"])
-        latest_year_data = statement_df.iloc[0]  # get the first row (latest year)
-        return latest_year_data.to_markdown()
-    except Exception as e:
-        logger.error(f"Error processing {statement_type} for {symbol}: {e}")
-        return None
+=== COMPANY OVERVIEW ===
+{overview}
 
-def _get_financial_ratio(symbol: str, ratio_type: str, get_ratio_func: Callable) -> Optional[str]:
-    """Get financial ratio with consistent formatting."""
-    try:
-        ratio_df = get_ratio_func(period=DEFAULT_CONFIG["period"])
-        ratio_df = ratio_df.iloc[0:1]
-        ratio_df_markdown = ratio_df.to_markdown()
-        logger.info(f"Ratio for {symbol}: {ratio_df_markdown}")
-        return ratio_df_markdown
-    except Exception as e:
-        logger.error(f"Error processing {ratio_type} for {symbol}: {e}")
-        return None
-# Public API functions
-def get_current_stock_price(symbol: str) -> Optional[float]:
-    """Get the current stock price of a given symbol."""
-    price = get_stock_price_from_vnstock(symbol)
-    logger.info(f"Get stock price for {symbol}: {price}")
-    return price
+=== BALANCE SHEET ===
+{balance_sheet_md}
 
+=== INCOME STATEMENT ===
+{income_md}
 
-def get_company_overview(symbol: str) -> Optional[str]:
-    """Get the company overview of a given symbol."""
-    return _get_financial_data(
-        symbol, 
-        "company_overview", 
-        lambda: get_company_overview_from_vnstock(symbol)
-    )
+=== CASH FLOW STATEMENT ===
+{cash_flow_md}
 
-
-def get_company_balance_sheet(symbol: str) -> Optional[str]:
-    """Get the company balance sheet (financial statement) of a given symbol."""
-    return _get_financial_data(
-        symbol,
-        "balance_sheet",
-        lambda: _get_financial_statement(
-            symbol,
-            "balance_sheet",
-            lambda period: finance_client(symbol).finance.balance_sheet(period=period)
-        )
-    )
-
-
-def get_company_income_statement(symbol: str) -> Optional[str]:
-    """Get the company income statement of a given symbol."""
-    return _get_financial_data(
-        symbol,
-        "income_statement",
-        lambda: _get_financial_statement(
-            symbol,
-            "income_statement",
-            lambda period: finance_client(symbol).finance.income_statement(period=period)
-        )
-    )
-
-
-def get_company_cash_flow_statement(symbol: str) -> Optional[str]:
-    """Get the company cash flow statement of a given symbol."""
-    return _get_financial_data(
-        symbol,
-        "cash_flow_statement",
-        lambda: _get_financial_statement(
-            symbol,
-            "cash_flow_statement",
-            lambda period: finance_client(symbol).finance.cash_flow(period=period)
-        )
-    )
-
-def get_company_ratio(symbol: str) -> Optional[str]:
-    """Get the company ratio of a given symbol."""
-    try:
-        ratio = _get_financial_ratio(symbol, "ratio", lambda period: finance_client(symbol).finance.ratio(period=period))
-        return ratio
-    except Exception as e:
-        logger.error(f"Error getting company ratio for {symbol}: {e}")
-        return None
-# Initialize and cleanup
-def initialize():
-    """Initialize the module by loading the cache."""
-    global finance_data_cache
-    finance_data_cache = load_finance_data_cache()
-
-
-def on_exit():
-    """Saves the finance data cache on exit."""
-    save_finance_data_cache(finance_data_cache)
-    logger.info("Finance data cache saved on exit.")
-
-def get_tools():
-    """Get the tools for the toolbox."""
-    return [
-        get_current_stock_price,
-        get_company_overview,
-        get_company_balance_sheet,
-        get_company_income_statement,
-        get_company_cash_flow_statement,
-    ]
-def get_stock_information(symbol: str) -> str:
-    """Get the stock information for a given symbol.
-    This tool will return the stock price, company overview, financial statement, income statement, and cash flow statement for a given symbol.
+=== FINANCIAL RATIOS ===
+{ratios_md}
+"""
+from typing import Optional
+def get_stock_information_by_year(symbol: str, year: Optional[int] = None) -> str:
+    """
+    Get stock information for a specific company and year.
     Args:
-        symbol: The symbol of the stock to get information for
+        symbol: Stock ticker symbol (e.g., "FPT")
+        year: Year of financial data (e.g., "2023")
     Returns:
-        A string containing the stock information
+        str: Formatted string with stock price, company overview, and financial statements 
     """
-    price = get_current_stock_price(symbol)
-    financial_data =f"""[STOCK INFORMATION]
-    Symbol: {symbol}
-    Price: {price}
-    Company Overview: {get_company_overview(symbol)}
-    Financial Statement: {get_company_balance_sheet(symbol)}
-    Income Statement: {get_company_income_statement(symbol)}
-    Cash Flow Statement: {get_company_cash_flow_statement(symbol)}
-    """
-    logger.info(f"return financial data for {symbol}")
-    return financial_data
-# Register exit handler
-atexit.register(on_exit)
-# Initialize module
-initialize()
+    return get_stock_information(symbol, year=year)
 
+
+# Initialize and clean up
+def initialize():
+    global finance_data_cache
+    finance_data_cache = load_cache()
+    logger.info("Finance data cache loaded")
+
+# Register exit handler to save cache
+atexit.register(save_cache)
+
+# Initialize on import
+initialize()
 
 # Test code
 if __name__ == "__main__":
     test_symbols = ["FPT"]
-
-    logger.info("\nTesting stock data from VnStock API:")
+    
+    logger.info("Testing stock data retrieval:")
     for symbol in test_symbols:
         try:
-            price = get_current_stock_price(symbol)
-            balance_sheet = get_company_balance_sheet(symbol)
-            logger.info(f"{symbol} price: {price}")
-            logger.info(f"{symbol} financial statement: {balance_sheet}")
+            # Get available years first
+            years = get_available_years(symbol)
+            logger.info(f"Available years for {symbol}: {years}")
             
-            cash_flow_statement = get_company_cash_flow_statement(symbol)
-            logger.info(f"{symbol} cash flow statement: {cash_flow_statement}")
+            # Get latest data
+            latest_info = get_stock_information(symbol)
+            logger.info(f"Latest information for {symbol}:\n{latest_info}")
             
-            overview = get_company_overview(symbol)
-            logger.info(f"{symbol} overview: {overview}")
+            # Get data for specific year if available
+            if years and len(years) > 1:
+                year = years[1]  # Get second most recent year
+                historical_info = get_stock_information(symbol, year=year)
+                logger.info(f"Historical information for {symbol} ({year}):\n{historical_info}")
+                
         except Exception as e:
             logger.error(f"Error getting data for {symbol}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())

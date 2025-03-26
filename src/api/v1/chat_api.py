@@ -16,7 +16,7 @@ from src.services.chat_service import chatbot_sessions, get_chatbot_service
 
 router = APIRouter()
 # get agent from main
-from src.core.agent_manager import agent
+# from src.core.agent_manager import agent
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(query: ChatQuery):
@@ -59,11 +59,11 @@ async def chat_stream(query: ChatQuery):
         logger.error(f"Error processing chat query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing chat query: {e}")
 
-@router.post("/chat-agent")
-async def chat_agent(query: ChatQuery): 
-    """Process a chat query using the agent."""
-    response = agent._get_answer(query.query,session_id=query.session_id)
-    return response
+# @router.post("/chat-agent")
+# async def chat_agent(query: ChatQuery): 
+#     """Process a chat query using the agent."""
+#     response = agent._get_answer(query.query,session_id=query.session_id)
+#     return response
 
 # @router.post("/chat-automation")
 # async def chat_automation(query: ChatQuery):

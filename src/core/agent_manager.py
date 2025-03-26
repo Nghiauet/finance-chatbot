@@ -1,7 +1,7 @@
-# src/core/agent_manager.py
-from src.services.agent import QueryAgent
-from langgraph.checkpoint.memory import MemorySaver
+# # src/core/agent_manager.py
+# from archived.agent import QueryAgent
+# from langgraph.checkpoint.memory import MemorySaver
 
-memory = MemorySaver()
+# memory = MemorySaver()
 
-agent = QueryAgent(memory=memory)
+# agent = QueryAgent(memory=memory)

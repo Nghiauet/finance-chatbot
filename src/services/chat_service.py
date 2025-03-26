@@ -87,16 +87,16 @@ class ChatbotService:
                 return [stock_symbol.symbol]
         return None
 
-    async def automation_flow(self, query: str) -> Optional[str]:
-        """Get the financial report from the tools."""
-        tools = [toolbox.get_stock_information]
-        prompt_with_tools = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
-        response = self.llm_service.generate_content_with_tools(prompt = prompt_with_tools, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
-        return response
+    # async def automation_flow(self, query: str) -> Optional[str]:
+    #     """Get the financial report from the tools."""
+    #     tools = [toolbox.get_stock_information]
+    #     prompt_with_tools = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
+    #     response = self.llm_service.generate_content_with_tools(prompt = prompt_with_tools, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
+    #     return response
     
     async def automation_flow_stream(self, query: str) -> AsyncGenerator[str, None]:
         """Get the financial report from the tools."""
-        tools = [toolbox.get_stock_information]
+        tools = [toolbox.get_stock_information_by_year]
 
         prompt_with_context = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
         response_stream = self.llm_service.generate_content_with_tools(prompt = prompt_with_context, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
@@ -138,7 +138,7 @@ class ChatbotService:
             
             # Fetch stock price
             try:
-                stock_price = toolbox.get_stock_price_from_vnstock(stock_symbol)
+                stock_price = toolbox.get_stock_price(stock_symbol)
                 if stock_price:
                     stock_price_info = f"Current stock price of {stock_symbol}: {stock_price}"
                     logger.info(f"Retrieved stock price for {stock_symbol}: {stock_price}")
