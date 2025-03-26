@@ -59,7 +59,8 @@ class LLMConfig:
 
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_API_KEY")
-        self.default_model = os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")
+        # self.default_model =  "gemini-2.0-flash"
+        self.default_model = "gemini-2.5-pro-exp-03-25"
         self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
         self.top_p = float(os.getenv("LLM_TOP_P", "0.95"))
         self.top_k = int(os.getenv("LLM_TOP_K", "40"))
@@ -67,41 +68,3 @@ class LLMConfig:
 
 # Create a global LLMConfig instance
 llm_config = LLMConfig()
-
-# Logging configuration
-def get_logger(name, request_id=None):
-    """
-    Get a configured logger instance.
-    
-    Args:
-        name: Name of the logger (typically __name__)
-        request_id: Optional request ID for tracking requests across logs
-        
-    Returns:
-        Configured logger instance
-    """
-    from loguru import logger
-    
-    # Configure logger format
-    format_string = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-    format_string += "<level>{level: <8}</level> | "
-    format_string += "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-    
-    if request_id:
-        format_string += f"<yellow>request_id={request_id}</yellow> | "
-    
-    format_string += "<level>{message}</level>"
-    
-    # Remove default logger and add custom configuration
-    logger.remove()
-    logger.add(sys.stderr, format=format_string, level="TRACE")
-    logger.add(
-        LOGS_DIR / "app.log",
-        rotation="10 MB",
-        retention="1 week",
-        format=format_string,
-        level="TRACE",
-        enqueue=True
-    )
-    return logger.bind(name=name)
-logger = get_logger(__name__)

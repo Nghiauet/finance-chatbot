@@ -145,7 +145,7 @@ class LLMService:
             Generated text or None if generation failed
         """
         try:
-            chat = self.client.chats.create(
+            response_stream = self.client.models.generate_content_stream(
                 model = self.model_name,
                 config = {
                     "tools": operation_tools,
@@ -156,15 +156,13 @@ class LLMService:
                     }
                 },
                 "system_instruction": system_instruction,
-            }
-            )
-            response = chat.send_message_stream(
-                prompt
+            },
+                contents = [prompt],
             )
 
-            for chunk in response:
+            for chunk in response_stream:
                 yield chunk.text
-                
+
                 
         except Exception as e:
             logger.error(f"Error generating content with tools: {str(e)}")

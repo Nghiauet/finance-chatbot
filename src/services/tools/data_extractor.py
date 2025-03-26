@@ -16,8 +16,9 @@ from PyPDF2 import PdfReader, PdfWriter
 
 from src.services.llm_service import get_llm_service
 from src.core.config import settings
+from src.core.config import llm_config
 # Constants
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = llm_config.default_model
 TIMESTAMP_FORMAT = "%Y%m%d"
 EXTRACTION_SUFFIX = "_extracted.md"
 

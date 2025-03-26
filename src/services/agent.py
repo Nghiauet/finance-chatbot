@@ -15,7 +15,7 @@ from src.services.tools.toolbox import (
     get_company_ratio,
 )
 from loguru import logger
-
+from src.core.config import llm_config
 # Load environment variables
 load_dotenv(override=True)
 
@@ -30,7 +30,7 @@ class QueryAgent:
         Initializes the QueryAgent with an LLM, memory, and tools.
         """
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-exp",  # or llm_config.default_model
+            model=llm_config.default_model,  # or llm_config.default_model
             streaming=True,
         )
         self.memory = memory

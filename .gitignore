@@ -156,5 +156,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 src/services/tools/get_stock_infor.ipynb
-finance_data_cache.json
+*.json
 Experiments/*
+finance_data_cache.json

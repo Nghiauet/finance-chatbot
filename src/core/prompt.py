@@ -22,25 +22,23 @@ SYSTEM_INSTRUCTION = """You are a helpful financial assistant that can provide i
     Context, when available, is provided between [CONTEXT] tags."""
 
 SYSTEM_INSTRUCTION_FOR_AUTOMATION = """
-You are a helpful financial assistant that can provide information based on financial reports,
-    documents, or general knowledge. When answering:
+You are a specialized financial assistant designed to provide accurate, actionable information using external tools, documents, and financial knowledge.
 
-    1. If financial report data is provided, prioritize information from those reports.
-    2. If context is provided, use that as secondary information.
-    3. If neither financial reports nor context has the answer but you know it, provide a general answer
-       based on your financial knowledge.
-    4. Be concise and clear in your explanations.
-    5. Format financial data in a readable way.
-    6. When discussing financial metrics, define them briefly before analyzing them.
-    7. If you're unsure, acknowledge the limitations of your knowledge.
-    8. If the user asks about a topic that is not related to finance, acknowledge that you are not able to answer that question.
-    9. Always answer general financial questions like definitions of P/E ratio, ROI, or other common financial terms.
-    10. If analyzing multiple reports, highlight trends and changes over time.
-    11. answer questions in the same language as the question.
-    12. if the money amount is too big, round it to the nearest million or billion.
-    You can use the following tools to get information:
-    - get_stock_information(symbol: str) -> str
-    """
+Follow these guidelines when responding:
+
+1.  **Language:** Respond in the same language as the user's query.
+2.  **Clarity & Conciseness:** Provide clear, concise explanations focused on the user's specific needs. Prioritize actionable insights over excessive data.
+3.  **Data Formatting:** Format financial data in easily readable tables or structured formats when appropriate. Simplify large monetary values (e.g., using millions or billions with appropriate units).
+4.  **Metric Definitions:** Briefly define financial metrics before analyzing them (e.g., "P/E ratio - Price-to-Earnings ratio measures...").
+5.  **Knowledge Scope:**
+    *   Address general financial questions about terms, concepts, and principles using your base knowledge.
+    *   Politely redirect non-financial queries, explaining that you specialize in financial information.
+6.  **Limitations:** Acknowledge knowledge limitations transparently when you cannot provide reliable information based on available tools, documents, or your internal knowledge.
+7.  **Tool Usage:** Utilize the available tools effectively to answer questions requiring specific, up-to-date data.
+
+Available Tools:
+- `get_stock_information(symbol: str)`: Retrieves key stock information for a given symbol, including current price, company overview, balance sheet, income statement, and cash flow statement. Use this tool when asked for specific data about a stock symbol.
+"""
 
 def get_system_instruction() -> str:
     """Get the system instruction for the chatbot."""
@@ -168,8 +166,46 @@ def build_prompt_with_financial_reports_from_tools(income_statement: str, balanc
     prompt_prefix = "Based on the financial reports provided, please answer the following question:"
     return f"""{financial_reports}\n\n{prompt_prefix}\n\nIf the financial reports don't contain information about this question but it's a general financial concept, please provide a helpful answer based on your financial knowledge."""
 
-def build_prompt_with_tools_for_automation(query: str) -> str:
-    """Build prompt string with tools for automation."""
-    return f"""[QUERY]\n{query}\n[/QUERY]
-    You are a helpful financial assistant that can provide information based on the tools provided,
+from typing import List, Optional
+
+def build_prompt_with_tools_for_automation(query: str, conversation_history: Optional[List[str]] = None) -> str:
     """
+    Builds the user message prompt for the agent, focusing on the query and conversation history.
+
+    This prompt assumes the agent's core instructions (role, available tools, general behavior)
+    are already defined in the system prompt used to initialize the agent. This function
+    formats the immediate user request and relevant context (history).
+
+    Args:
+        query: The user's current query.
+        conversation_history: A list of previous turns in the conversation (optional).
+                              Expected format might need adjustment based on how history is stored
+                              (e.g., alternating user/assistant messages).
+
+    Returns:
+        A formatted string to be used as the content of the user message sent to the agent.
+    """
+    prompt_parts = []
+
+    # Add a concise instruction guiding the agent for this specific turn.
+    prompt_parts.append(
+        "Based on the chat history (if provided) and the current query, please provide a helpful response. "
+        "Use your available tools if necessary to gather or verify information."
+    )
+
+    # Include conversation history if available, clearly demarcated.
+    if conversation_history:
+        # Join the history turns. Consider adding prefixes like "User:"/"Assistant:"
+        # if the history list doesn't already include them and the model benefits from it.
+        history_str = "\n".join(conversation_history)
+        prompt_parts.append(f"""[CHAT HISTORY]
+{history_str}
+[/CHAT HISTORY]""")
+
+    # Include the current user query, clearly demarcated.
+    prompt_parts.append(f"""[CURRENT QUERY]
+{query}
+[/CURRENT QUERY]""")
+
+    # Combine the parts into a single string with clear separation.
+    return "\n\n".join(prompt_parts)

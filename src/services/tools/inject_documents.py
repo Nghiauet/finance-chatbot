@@ -13,10 +13,9 @@ from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 from bson import ObjectId
-
 from src.services.tools.data_extractor import DataExtractor
 from src.api.v1.schemas import FinancialReport
-from src.core.config import settings, get_logger
+from src.core.config import settings
 
 class DocumentInjector:
     """
@@ -178,7 +177,6 @@ if __name__ == "__main__":
     from src.db.mongo_services import MongoService
 
     async def main():
-        logger = get_logger(__name__)
         try:
             
             logger.info("Initializing MongoDB service")

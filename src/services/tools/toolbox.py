@@ -8,7 +8,7 @@ from functools import lru_cache
 from langchain_core.tools import tool
 from vnstock import Vnstock
 
-from src.core.config import logger
+from loguru import logger
 
 # Constants
 FINANCE_DATA_CACHE_FILE = "finance_data_cache.json"
@@ -143,7 +143,10 @@ def _get_financial_ratio(symbol: str, ratio_type: str, get_ratio_func: Callable)
     """Get financial ratio with consistent formatting."""
     try:
         ratio_df = get_ratio_func(period=DEFAULT_CONFIG["period"])
-        return ratio_df.to_markdown()
+        ratio_df = ratio_df.iloc[0:1]
+        ratio_df_markdown = ratio_df.to_markdown()
+        logger.info(f"Ratio for {symbol}: {ratio_df_markdown}")
+        return ratio_df_markdown
     except Exception as e:
         logger.error(f"Error processing {ratio_type} for {symbol}: {e}")
         return None
@@ -204,11 +207,12 @@ def get_company_cash_flow_statement(symbol: str) -> Optional[str]:
 
 def get_company_ratio(symbol: str) -> Optional[str]:
     """Get the company ratio of a given symbol."""
-    return _get_financial_data(
-        symbol,
-        "ratio",
-        lambda: _get_financial_ratio(symbol, "ratio", lambda period: finance_client(symbol).finance.ratio(period=period))
-    )
+    try:
+        ratio = _get_financial_ratio(symbol, "ratio", lambda period: finance_client(symbol).finance.ratio(period=period))
+        return ratio
+    except Exception as e:
+        logger.error(f"Error getting company ratio for {symbol}: {e}")
+        return None
 # Initialize and cleanup
 def initialize():
     """Initialize the module by loading the cache."""
@@ -239,15 +243,16 @@ def get_stock_information(symbol: str) -> str:
         A string containing the stock information
     """
     price = get_current_stock_price(symbol)
-    return f"""[STOCK INFORMATION]
+    financial_data =f"""[STOCK INFORMATION]
     Symbol: {symbol}
     Price: {price}
     Company Overview: {get_company_overview(symbol)}
     Financial Statement: {get_company_balance_sheet(symbol)}
     Income Statement: {get_company_income_statement(symbol)}
     Cash Flow Statement: {get_company_cash_flow_statement(symbol)}
-    Company Ratio: {get_company_ratio(symbol)}
     """
+    logger.info(f"return financial data for {symbol}")
+    return financial_data
 # Register exit handler
 atexit.register(on_exit)
 # Initialize module

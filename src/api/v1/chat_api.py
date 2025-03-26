@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile, Query
 from fastapi.responses import StreamingResponse
-from src.core.config import logger
+from loguru import logger
 
 from src.api.v1.schemas import ChatQuery, ChatResponse, ClearChatResponse
 from src.services.chat_service import chatbot_sessions, get_chatbot_service
@@ -45,9 +45,14 @@ async def chat_stream(query: ChatQuery):
         logger.info(f"Query: {query.query}")
         logger.info(f"Company: {query.company}")
         logger.info(f"Period: {query.period}")
-        response_stream = await chatbot.automation_flow_stream(
-            query=query.query
-        )
+        if query.company:
+            response_stream = await chatbot.process_query_stream(
+                query=query.query, stock_symbol=query.company, period=query.period
+            )
+        else:
+            response_stream = await chatbot.automation_flow_stream(
+                query=query.query
+            )
 
         return StreamingResponse(response_stream, media_type="text/event-stream")
     except Exception as e:

@@ -1,8 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from src.core.config import settings, get_logger
-
+from src.core.config import settings
+from loguru import logger
 # Initialize logger for this module
-logger = get_logger("db.mongo_connect")
 
 class Database:
     client: AsyncIOMotorClient = None

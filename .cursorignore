@@ -14,3 +14,4 @@ data**
 /finance-chatbot-frontend/.env.development.local
 /finance-chatbot-frontend/.env.test.local
 /finance-chatbot-frontend/.env.production.local
+finance_data_cache.json

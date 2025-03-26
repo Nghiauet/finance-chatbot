@@ -90,14 +90,15 @@ class ChatbotService:
     async def automation_flow(self, query: str) -> Optional[str]:
         """Get the financial report from the tools."""
         tools = [toolbox.get_stock_information]
-        prompt_with_tools = prompt.build_prompt_with_tools_for_automation(query)
+        prompt_with_tools = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
         response = self.llm_service.generate_content_with_tools(prompt = prompt_with_tools, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
         return response
     
     async def automation_flow_stream(self, query: str) -> AsyncGenerator[str, None]:
         """Get the financial report from the tools."""
         tools = [toolbox.get_stock_information]
-        prompt_with_context = prompt.build_prompt_without_context(query, self.conversation_history)
+
+        prompt_with_context = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
         response_stream = self.llm_service.generate_content_with_tools(prompt = prompt_with_context, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
         full_response = ""
         async def generate_stream():

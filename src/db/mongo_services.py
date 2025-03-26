@@ -7,13 +7,13 @@ from src.api.v1.schemas import FinancialReport
 from fastapi import HTTPException
 from pymongo.errors import DuplicateKeyError
 from pymongo import ASCENDING, DESCENDING, TEXT
-from src.core.config import settings, get_logger
+from src.core.config import settings
+from loguru import logger
 import base64
 import hashlib
 import asyncio
 
 # Initialize logger
-logger = get_logger("db.mongo_connect")
 
 class MongoService:
     def __init__(self):
