@@ -3,20 +3,17 @@ LLM Service for interacting with Google's Gemini AI with optimized concurrency s
 """
 from __future__ import annotations
 
-import time
 import asyncio
-from typing import Optional, Dict, Any, Iterator, List, Callable, Union, AsyncGenerator
-from pathlib import Path
+from typing import Optional, List, Callable, AsyncGenerator
 
 from google import genai
 from google.genai import types
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, TooManyRequests
-from src.core.config import llm_config
 from loguru import logger
-from pydantic import BaseModel
-from src.services.tools.search_engine import search_information
-# Import the key manager
+
+from src.core.config import llm_config
 from src.core.llm_key_manager import get_key_manager
+
 
 class LLMService:
     """
@@ -27,14 +24,16 @@ class LLMService:
     # Rate limit error types that should trigger retries
     RATE_LIMIT_ERRORS = (ResourceExhausted, ServiceUnavailable, TooManyRequests)
     
-    def __init__(self, 
-                 model_name: str = llm_config.default_model, 
-                 backup_models: Optional[List[str]] = None,
-                 api_key_prefix: str = "GEMINI_API_KEY",
-                 max_retries: int = 3,
-                 retry_delay: float = 1.0,
-                 rate_limit_duration: int = 60,
-                 max_concurrent_requests: int = 20):
+    def __init__(
+        self, 
+        model_name: str = llm_config.default_model, 
+        backup_models: Optional[List[str]] = None,
+        api_key_prefix: str = "GEMINI_API_KEY",
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+        rate_limit_duration: int = 60,
+        max_concurrent_requests: int = 20
+    ):
         """
         Initialize the LLM service.
         
@@ -65,7 +64,7 @@ class LLMService:
         self.client = genai.Client(api_key=initial_key)
         self.current_key = initial_key
         
-        # Semaphore for limiting concurrent API requests (not streaming)
+        # Semaphore for limiting concurrent API requests
         self.api_semaphore = asyncio.Semaphore(max_concurrent_requests)
         
         logger.info(f"Initialized LLM service with model: {model_name}, max concurrent requests: {max_concurrent_requests}")
@@ -85,8 +84,13 @@ class LLMService:
             self.current_key = key
             return key
         
-    async def _handle_rate_limit(self, current_key: str, retry_count: int, 
-                          error: Exception, model_index: int = 0) -> tuple:
+    async def _handle_rate_limit(
+        self, 
+        current_key: str, 
+        retry_count: int, 
+        error: Exception, 
+        model_index: int = 0
+    ) -> tuple[int, int]:
         """
         Handle rate limit errors with retries and model fallback.
         
@@ -127,6 +131,24 @@ class LLMService:
             return self.model_name
         else:
             return self.backup_models[model_index - 1]
+
+    async def _process_function_call_chunk(self, chunk) -> Optional[str]:
+        """
+        Process a chunk that might contain a function call.
+        
+        Args:
+            chunk: Response chunk from the LLM
+            
+        Returns:
+            Text content if available, otherwise None
+        """
+        # If not text, skip
+        if not hasattr(chunk, 'text') or not chunk.text:
+            return None
+        
+        # If text, return it
+        return chunk.text
+
     async def generate_content_with_tools(
         self,
         prompt: str,
@@ -148,6 +170,7 @@ class LLMService:
         retry_count = 0
         model_index = 0
         response_stream = None
+        operation_tools = operation_tools or []
 
         # Get the stream with a semaphore - this is the only part that needs rate limiting
         while response_stream is None:
@@ -160,14 +183,10 @@ class LLMService:
                     
                     # Get a fresh client with a new API key for each attempt
                     current_key = await self._refresh_client()
-                    logger.info(f"Refreshed client with key: {current_key}")
                     
                     # Use the appropriate model based on retries
                     model_name = self._get_model_name(model_index)
                     logger.info(f"Using model: {model_name}")
-                    
-                    # Initialize the response stream - this is where we need rate limit protection
-                    logger.info("Initializing response stream")
                     
                     # Prepare initial content
                     contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
@@ -191,36 +210,11 @@ class LLMService:
                         contents=contents,
                     )
                     
-                    
+                    # Process tool calls if present
                     if response.candidates and response.candidates[0].content.parts:
                         for part in response.candidates[0].content.parts:
-                            if part.function_call:
-                                tool_call = part.function_call
-                                logger.info(f"Tool call: {tool_call}")
-                                
-                                # Find the corresponding tool
-                                tool = next((t for t in operation_tools if t.__name__ == tool_call.name), None)
-                                if not tool:
-                                    logger.warning(f"Tool {tool_call.name} not found in available tools.")
-                                    continue
-                                
-                                try:
-                                    # Execute the tool
-                                    result = await tool(**tool_call.args)
-                                    logger.info(f"Tool {tool_call.name} results: {result}")
-                                    
-                                    # Create function response part
-                                    function_response_part = types.Part.from_function_response(
-                                        name=tool_call.name,
-                                        response={"result": result}
-                                    )
-
-                                    # Add model's function call and function response to conversation
-                                    contents.append(types.Content(role="model", parts=[types.Part(function_call=tool_call)]))
-                                    contents.append(types.Content(role="user", parts=[function_response_part]))
-                                except Exception as e:
-                                    logger.error(f"Error executing tool {tool_call.name}: {e}")
-
+                            if hasattr(part, 'function_call') and part.function_call:
+                                await self._process_tool_call(part.function_call, operation_tools, contents)
                                 
                     # Get streaming response
                     response_stream = self.client.models.generate_content_stream(
@@ -249,17 +243,56 @@ class LLMService:
         try:
             logger.info("Processing response stream")
             for chunk in response_stream:
-                logger.debug(f"Received chunk: {chunk.text}")
-                yield chunk.text
+                # Handle chunks with function calls or None text
+                chunk_text = await self._process_function_call_chunk(chunk)
+                
+                if chunk_text is not None:
+                    logger.debug(f"Received text chunk: {chunk_text}")
+                    yield chunk_text
+                else:
+                    logger.debug("Received chunk with no text content")
+                    # Skip yielding None to avoid breaking the stream
+                    # But we could yield an empty string if needed:
+                    # yield ""
+                
                 await asyncio.sleep(0)  # Yield control back to event loop
                 
         except Exception as e:
             logger.error(f"Error processing content stream with tools: {str(e)}")
             yield None
-# Lock for accessing the global service
+
+    async def _process_tool_call(self, tool_call, operation_tools, contents):
+        """Process a tool call and update contents with results."""
+        logger.info(f"Tool call: {tool_call}")
+        
+        # Find the corresponding tool
+        tool = next((t for t in operation_tools if t.__name__ == tool_call.name), None)
+        if not tool:
+            logger.warning(f"Tool {tool_call.name} not found in available tools.")
+            return
+        
+        try:
+            # Execute the tool
+            result = await tool(**tool_call.args)
+            logger.info(f"Tool {tool_call.name} results: {result}")
+            
+            # Create function response part
+            function_response_part = types.Part.from_function_response(
+                name=tool_call.name,
+                response={"result": result}
+            )
+
+            # Add model's function call and function response to conversation
+            contents.append(types.Content(role="model", parts=[types.Part(function_call=tool_call)]))
+            contents.append(types.Content(role="user", parts=[function_response_part]))
+        except Exception as e:
+            logger.error(f"Error executing tool {tool_call.name}: {e}")
+
+
+# Global service instance and lock
 _service_lock = asyncio.Lock()
-# Set up global service
 default_llm_service = None
+
 
 async def get_llm_service_async(
     model_name: str = llm_config.default_model,
@@ -283,7 +316,7 @@ async def get_llm_service_async(
     
     # Initialize default values if None
     if backup_models is None:
-        backup_models = llm_config.backup_models if hasattr(llm_config, 'backup_models') else []
+        backup_models = getattr(llm_config, 'backup_models', [])
     
     async with _service_lock:
         # Create a new instance if needed
