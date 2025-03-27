@@ -34,7 +34,14 @@ def save_cache():
         logger.info(f"Cache saved to {FINANCE_DATA_CACHE_FILE}")
     except Exception as e:
         logger.error(f"Error saving cache: {e}")
-
+def save_finance_data_cache(finance_data_cache):
+    """Save the finance data cache to file"""
+    try:
+        with open(FINANCE_DATA_CACHE_FILE, "w") as f:
+            json.dump(finance_data_cache, f, indent=4)
+        logger.info(f"Cache saved to {FINANCE_DATA_CACHE_FILE}")
+    except Exception as e:
+        logger.error(f"Error saving cache: {e}")
 # Stock data functions
 def get_stock_price(symbol):
     """Get current stock price for a symbol"""
