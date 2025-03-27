@@ -8,10 +8,11 @@ from loguru import logger
 from src.services.llm_service import LLMService, get_llm_service
 from src.db.mongo_services import MongoService
 from src.core.config import llm_config
-from src.services.tools import get_stock_information_tools
+from src.services.tools import get_stock_information_tools,search_engine
 from src.core import prompt
 import json
 from pydantic import BaseModel
+
 class StockSymbol(BaseModel):
     """Stock symbol model."""
     symbol: str
@@ -96,7 +97,7 @@ class ChatbotService:
     
     async def automation_flow_stream(self, query: str) -> AsyncGenerator[str, None]:
         """Get the financial report from the tools."""
-        tools = [get_stock_information_tools.get_stock_information_by_year]
+        tools = [get_stock_information_tools.get_stock_information_by_year,search_engine.search_information]
 
         prompt_with_context = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
         response_stream = self.llm_service.generate_content_with_tools(prompt = prompt_with_context, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)

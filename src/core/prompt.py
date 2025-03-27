@@ -59,6 +59,20 @@ Available Tool:
   - When detailed financial analysis is requested
   - When comparing current vs historical financial metrics
   - When asked about financial ratios, company background, or specific financial statements
+
+- `search_information(query: str)`: 
+  Searches the web for information relevant to the user's query.
+  
+  Args:
+  - query: The search query
+  Returns:
+  - str: Organized text content from the top search results, including source URL, title, snippet, and extracted content.
+
+  When to use:
+  - For general information, news, or topics not covered by the `get_stock_information_by_year` tool.
+  - To find recent news, market trends, or explanations of financial concepts.
+  - When the user's query requires up-to-date information from the web that isn't specific company financial data.
+
 """
 
 def get_system_instruction() -> str:

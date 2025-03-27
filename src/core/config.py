@@ -49,7 +49,8 @@ class Settings:
         # CORS settings
         self.CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
         self.BACKEND_CORS_ORIGINS = os.getenv("BACKEND_CORS_ORIGINS", "*").split(",")
-
+        self.SEARCH_ENGINE_API_KEY = os.getenv("SEARCH_ENGINE_API_KEY")
+        self.SEARCH_ENGINE_CSE_ID = os.getenv("SEARCH_ENGINE_CSE_ID")
 
 # Create a global settings instance
 settings = Settings()
@@ -58,7 +59,7 @@ class LLMConfig:
     """LLM configuration for the application."""
 
     def __init__(self):
-        self.api_key = os.getenv("GOOGLE_API_KEY")
+        self.api_key = os.getenv("GEMINI_API_KEY")
         # self.default_model =  "gemini-2.0-flash"
         self.default_model = "gemini-2.5-pro-exp-03-25"
         self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
