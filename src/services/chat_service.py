@@ -1,11 +1,12 @@
 """Chatbot service for processing user queries with financial reports."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Dict, List, Optional, AsyncGenerator
 
 from loguru import logger
-from src.services.llm_service import LLMService, get_llm_service
+from src.services.llm_service import LLMService
 from src.db.mongo_services import MongoService
 from src.core.config import llm_config
 from src.services.tools import get_stock_information_tools,search_engine
@@ -24,7 +25,7 @@ class ChatbotService:
         """Initialize the chatbot service."""
         self.model_name = model_name
         self.session_id = session_id or str(uuid.uuid4())
-        self.llm_service: LLMService = get_llm_service(model_name)
+        self.llm_service: LLMService = LLMService(model_name=model_name)
         self.mongo_service: MongoService = MongoService()
         self.conversation_history: List[str] = []
         logger.info(f"Initialized Chatbot service with model: {model_name}, session: {self.session_id}")
@@ -57,17 +58,23 @@ class ChatbotService:
                 prompt=prompt_text,
                 system_instruction=prompt.get_system_instruction(),
             )
-            full_response = ""
+            
+            # Create a local copy of the response for this specific request
+            request_response = ""
 
             async def generate_stream():
-                nonlocal full_response  # Allow modification of full_response in the outer scope
-                for chunk in response_stream:
-                    full_response += chunk
-                    yield f"data: {json.dumps({'text': chunk})}\n\n"
+                nonlocal request_response
+                async for chunk in response_stream:
+                    if chunk is not None:
+                        request_response += chunk
+                        yield f"data: {json.dumps({'text': chunk})}\n\n"
             
+                # Only update conversation history after the stream is complete
+                # This prevents race conditions with other concurrent requests
                 self.conversation_history.append(f"User: {query}")
-                self.conversation_history.append(f"Chatbot: {full_response}")
+                self.conversation_history.append(f"Chatbot: {request_response}")
             
+            # Return the generator function
             return generate_stream()
 
         except Exception as e:
@@ -87,13 +94,6 @@ class ChatbotService:
             except:
                 return [stock_symbol.symbol]
         return None
-
-    # async def automation_flow(self, query: str) -> Optional[str]:
-    #     """Get the financial report from the tools."""
-    #     tools = [get_stock_information.get_stock_information]
-    #     prompt_with_tools = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
-    #     response = self.llm_service.generate_content_with_tools(prompt = prompt_with_tools, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
-    #     return response
     
     async def automation_flow_stream(self, query: str) -> AsyncGenerator[str, None]:
         """Get the financial report from the tools."""
@@ -102,11 +102,14 @@ class ChatbotService:
         prompt_with_context = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
         response_stream = self.llm_service.generate_content_with_tools(prompt = prompt_with_context, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
         full_response = ""
+        
         async def generate_stream():
-            nonlocal full_response  # Allow modification of full_response in the outer scope
-            for chunk in response_stream:
-                full_response += chunk
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            nonlocal full_response
+            async for chunk in response_stream:
+                if chunk is not None:
+                    full_response += chunk
+                    yield f"data: {json.dumps({'text': chunk})}\n\n"
+            
             self.conversation_history.append(f"User: {query}")
             self.conversation_history.append(f"Chatbot: {full_response}")
         

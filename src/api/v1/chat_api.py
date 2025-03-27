@@ -15,25 +15,6 @@ from src.api.v1.schemas import ChatQuery, ChatResponse, ClearChatResponse
 from src.services.chat_service import chatbot_sessions, get_chatbot_service
 
 router = APIRouter()
-# get agent from main
-# from src.core.agent_manager import agent
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat(query: ChatQuery):
-    """Process a chat query."""
-    try:
-        chatbot = get_chatbot_service(session_id=query.session_id)
-        logger.debug(f"Chat input: {query}")
-
-        response = await chatbot.process_query(
-            query=query.query, stock_symbol=query.company, period=query.period
-        )
-
-        logger.debug(f"Chatbot output: {response}")
-        return ChatResponse(answer=response, metadata={"session_id": chatbot.session_id})
-    except Exception as e:
-        logger.error(f"Error processing chat query: {e}")
-        raise HTTPException(status_code=500, detail=f"Error processing chat query: {e}")
 
 
 @router.post("/chat-stream")
@@ -43,14 +24,8 @@ async def chat_stream(query: ChatQuery):
         chatbot = get_chatbot_service(session_id=query.session_id)
         logger.info(f"Session ID: {query.session_id}")
         logger.info(f"Query: {query.query}")
-        logger.info(f"Company: {query.company}")
-        logger.info(f"Period: {query.period}")
-        if query.company:
-            response_stream = await chatbot.process_query_stream(
-                query=query.query, stock_symbol=query.company, period=query.period
-            )
-        else:
-            response_stream = await chatbot.automation_flow_stream(
+
+        response_stream = await chatbot.automation_flow_stream(
                 query=query.query
             )
 
@@ -59,20 +34,7 @@ async def chat_stream(query: ChatQuery):
         logger.error(f"Error processing chat query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing chat query: {e}")
 
-# @router.post("/chat-agent")
-# async def chat_agent(query: ChatQuery): 
-#     """Process a chat query using the agent."""
-#     response = agent._get_answer(query.query,session_id=query.session_id)
-#     return response
 
-# @router.post("/chat-automation")
-# async def chat_automation(query: ChatQuery):
-#     """Process a chat query using the agent."""
-#     chatbot = get_chatbot_service(session_id=query.session_id)
-#     logger.info(f"Session ID: {query.session_id}")
-#     logger.info(f"Query: {query.query}")
-#     response = await chatbot.automation_flow(query.query)
-#     return response
 
 @router.post("/clear-chat", response_model=ClearChatResponse)
 async def clear_chat(session_id: str = Query(..., description="Session ID to clear")):

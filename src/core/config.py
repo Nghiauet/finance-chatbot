@@ -60,8 +60,8 @@ class LLMConfig:
 
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
-        # self.default_model =  "gemini-2.0-flash"
-        self.default_model = "gemini-2.5-pro-exp-03-25"
+        self.default_model = "gemini-2.0-flash"
+        # self.default_model = "gemini-2.5-pro-exp-03-25"
         self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
         self.top_p = float(os.getenv("LLM_TOP_P", "0.95"))
         self.top_k = int(os.getenv("LLM_TOP_K", "40"))

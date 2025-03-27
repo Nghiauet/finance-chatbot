@@ -4,6 +4,7 @@ import atexit
 from datetime import datetime, timedelta
 import pandas as pd
 from loguru import logger
+import asyncio
 
 from vnstock import Vnstock
 
@@ -42,15 +43,19 @@ def save_finance_data_cache(finance_data_cache):
         logger.info(f"Cache saved to {FINANCE_DATA_CACHE_FILE}")
     except Exception as e:
         logger.error(f"Error saving cache: {e}")
+
 # Stock data functions
-def get_stock_price(symbol):
+async def get_stock_price(symbol):
     """Get current stock price for a symbol"""
     try:
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
         
-        df = Vnstock().stock(source="TCBS", symbol=symbol).quote.history(
-            symbol=symbol, start=start_date, end=end_date, interval="1D"
+        # Use asyncio.to_thread to run this blocking operation in a thread pool
+        df = await asyncio.to_thread(
+            lambda: Vnstock().stock(source="TCBS", symbol=symbol).quote.history(
+                symbol=symbol, start=start_date, end=end_date, interval="1D"
+            )
         )
         
         price = int(float(df.iloc[-1]["close"]) * 1000)
@@ -79,7 +84,7 @@ def format_number(number):
     except:
         return str(number)
 
-def get_company_overview(symbol):
+async def get_company_overview(symbol):
     """Get company overview"""
     cache_key = f"{symbol}_overview"
     
@@ -91,8 +96,9 @@ def get_company_overview(symbol):
     # Fetch fresh data
     logger.info(f"Fetching overview for {symbol}")
     try:
-        client = Vnstock().stock(symbol=symbol, source="VCI")
-        overview_df = client.company.overview()
+        # Run blocking operation in a thread pool
+        client = await asyncio.to_thread(lambda: Vnstock().stock(symbol=symbol, source="VCI"))
+        overview_df = await asyncio.to_thread(lambda: client.company.overview())
         
         # Format the overview data into a readable markdown
         if not overview_df.empty:
@@ -218,7 +224,7 @@ def format_ratio_dataframe(df):
     
     return markdown
 
-def get_financial_data(symbol, statement_type, year=None):
+async def get_financial_data(symbol, statement_type, year=None):
     """Get financial data for a specific year"""
     cache_key = f"{symbol}_{statement_type}"
     if year:
@@ -232,19 +238,20 @@ def get_financial_data(symbol, statement_type, year=None):
     # Fetch fresh data
     logger.info(f"Fetching {statement_type} for {symbol}")
     try:
-        client = Vnstock().stock(symbol=symbol, source="VCI")
+        # Run blocking operation in a thread pool
+        client = await asyncio.to_thread(lambda: Vnstock().stock(symbol=symbol, source="VCI"))
         
         if statement_type == "balance_sheet":
-            statement_df = client.finance.balance_sheet(period=DEFAULT_PERIOD)
+            statement_df = await asyncio.to_thread(lambda: client.finance.balance_sheet(period=DEFAULT_PERIOD))
             year_column = 'yearReport'
         elif statement_type == "income_statement":
-            statement_df = client.finance.income_statement(period=DEFAULT_PERIOD)
+            statement_df = await asyncio.to_thread(lambda: client.finance.income_statement(period=DEFAULT_PERIOD))
             year_column = 'yearReport'
         elif statement_type == "cash_flow":
-            statement_df = client.finance.cash_flow(period=DEFAULT_PERIOD)
+            statement_df = await asyncio.to_thread(lambda: client.finance.cash_flow(period=DEFAULT_PERIOD))
             year_column = 'yearReport'
         elif statement_type == "ratio":
-            statement_df = client.finance.ratio(period=DEFAULT_PERIOD)
+            statement_df = await asyncio.to_thread(lambda: client.finance.ratio(period=DEFAULT_PERIOD))
             # For ratio, the year might be in '(Meta, Năm)' column based on the provided structure
             if '(Meta, Năm)' in statement_df.columns:
                 year_column = '(Meta, Năm)'
@@ -304,37 +311,39 @@ def get_financial_data(symbol, statement_type, year=None):
         logger.error(traceback.format_exc())
         return None
 
-def get_balance_sheet(symbol, year=None):
+async def get_balance_sheet(symbol, year=None):
     """Get balance sheet for specific year"""
-    return get_financial_data(symbol, "balance_sheet", year)
+    return await get_financial_data(symbol, "balance_sheet", year)
 
-def get_income_statement(symbol, year=None):
+async def get_income_statement(symbol, year=None):
     """Get income statement for specific year"""
-    return get_financial_data(symbol, "income_statement", year)
+    return await get_financial_data(symbol, "income_statement", year)
 
-def get_cash_flow(symbol, year=None):
+async def get_cash_flow(symbol, year=None):
     """Get cash flow statement for specific year"""
-    return get_financial_data(symbol, "cash_flow", year)
+    return await get_financial_data(symbol, "cash_flow", year)
 
-def get_financial_ratios(symbol, year=None):
+async def get_financial_ratios(symbol, year=None):
     """Get financial ratios for specific year"""
-    return get_financial_data(symbol, "ratio", year)
-def get_available_years(symbol, statement_type="income_statement"):
+    return await get_financial_data(symbol, "ratio", year)
+
+async def get_available_years(symbol, statement_type="income_statement"):
     """Get list of available years for the given symbol"""
     try:
-        client = Vnstock().stock(symbol=symbol, source="VCI")
+        # Run blocking operation in a thread pool
+        client = await asyncio.to_thread(lambda: Vnstock().stock(symbol=symbol, source="VCI"))
         
         if statement_type == "balance_sheet":
-            statement_df = client.finance.balance_sheet(period=DEFAULT_PERIOD)
+            statement_df = await asyncio.to_thread(lambda: client.finance.balance_sheet(period=DEFAULT_PERIOD))
             year_column = 'yearReport'
         elif statement_type == "income_statement":
-            statement_df = client.finance.income_statement(period=DEFAULT_PERIOD)
+            statement_df = await asyncio.to_thread(lambda: client.finance.income_statement(period=DEFAULT_PERIOD))
             year_column = 'yearReport'
         elif statement_type == "cash_flow":
-            statement_df = client.finance.cash_flow(period=DEFAULT_PERIOD)
+            statement_df = await asyncio.to_thread(lambda: client.finance.cash_flow(period=DEFAULT_PERIOD))
             year_column = 'yearReport'
         elif statement_type == "ratio":
-            statement_df = client.finance.ratio(period=DEFAULT_PERIOD)
+            statement_df = await asyncio.to_thread(lambda: client.finance.ratio(period=DEFAULT_PERIOD))
             # For ratio, check if '(Meta, Năm)' exists
             if '(Meta, Năm)' in statement_df.columns:
                 year_column = '(Meta, Năm)'
@@ -357,18 +366,18 @@ def get_available_years(symbol, statement_type="income_statement"):
         logger.error(f"Error getting available years for {symbol}: {e}")
         return []
 
-def get_stock_information(symbol, year=None):
+async def get_stock_information(symbol, year=None):
     """Get comprehensive stock information for a specific year"""
-    price = get_stock_price(symbol)
-    overview = get_company_overview(symbol)
+    price = await get_stock_price(symbol)
+    overview = await get_company_overview(symbol)
     
     year_info = f" (Year: {year})" if year else " (Latest year)"
     
     # Get each statement for the specified year
-    balance_sheet_md = get_balance_sheet(symbol, year=year)
-    income_md = get_income_statement(symbol, year=year)
-    cash_flow_md = get_cash_flow(symbol, year=year)
-    ratios_md = get_financial_ratios(symbol, year=year)
+    balance_sheet_md = await get_balance_sheet(symbol, year=year)
+    income_md = await get_income_statement(symbol, year=year)
+    cash_flow_md = await get_cash_flow(symbol, year=year)
+    ratios_md = await get_financial_ratios(symbol, year=year)
     
     return f"""[STOCK INFORMATION]{year_info}
 Symbol: {symbol}
@@ -389,6 +398,7 @@ Price: {price}
 === FINANCIAL RATIOS ===
 {ratios_md}
 """
+
 from typing import Optional
 def get_stock_information_by_year(symbol: str, year: Optional[int] = None) -> str:
     """
