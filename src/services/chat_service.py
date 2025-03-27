@@ -6,10 +6,10 @@ import uuid
 from typing import Dict, List, Optional, AsyncGenerator
 
 from loguru import logger
-from src.services.llm_service import LLMService
+from src.services.llm_service import LLMService, get_llm_service_async
 from src.db.mongo_services import MongoService
 from src.core.config import llm_config
-from src.services.tools import get_stock_information_tools,search_engine
+from src.services.tools import get_stock_information_tools, search_engine
 from src.core import prompt
 import json
 from pydantic import BaseModel
@@ -18,204 +18,161 @@ class StockSymbol(BaseModel):
     """Stock symbol model."""
     symbol: str
 
-class ChatbotService:
-    """Service for handling chatbot interactions using financial reports."""
+class ChatSession:
+    """Class representing a single chat session with conversation history."""
+    
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.conversation_history: List[str] = []
+        self.history_lock = asyncio.Lock()  # Lock for thread-safe conversation history updates
+        logger.info(f"Initialized chat session: {session_id}")
+    
+    async def add_to_history(self, user_query: str, bot_response: str):
+        """Thread-safe method to add interactions to the history."""
+        async with self.history_lock:
+            self.conversation_history.append(f"User: {user_query}")
+            self.conversation_history.append(f"Chatbot: {bot_response}")
+    
+    async def get_history(self):
+        """Thread-safe method to get a copy of the conversation history."""
+        async with self.history_lock:
+            return self.conversation_history.copy()
+    
+    async def clear_history(self):
+        """Thread-safe method to clear conversation history."""
+        async with self.history_lock:
+            self.conversation_history = []
+            logger.info(f"Cleared history for session {self.session_id}")
 
-    def __init__(self, model_name: str = llm_config.default_model, session_id: str = None):
+
+class ChatbotService:
+    """Service for handling multiple concurrent chatbot interactions using financial reports."""
+
+    def __init__(self, model_name: str = llm_config.default_model):
         """Initialize the chatbot service."""
         self.model_name = model_name
-        self.session_id = session_id or str(uuid.uuid4())
-        self.llm_service: LLMService = LLMService(model_name=model_name)
+        self.llm_service = None  # Will be initialized lazily
         self.mongo_service: MongoService = MongoService()
-        self.conversation_history: List[str] = []
-        logger.info(f"Initialized Chatbot service with model: {model_name}, session: {self.session_id}")
+        self.sessions: Dict[str, ChatSession] = {}
+        self.sessions_lock = asyncio.Lock()  # Lock for thread-safe session management
+        logger.info(f"Initialized Chatbot service with model: {model_name}")
 
-    async def process_query(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None) -> str:
-        """Process a user query with context from financial reports."""
-        try:
-            prompt_text = await self._build_prompt(query, stock_symbol, period)
-            response = self.llm_service.generate_content(
-                prompt=prompt_text,
-                system_instruction=prompt.get_system_instruction(),
-            )
+    async def _get_llm_service(self) -> LLMService:
+        """Lazy initialization of LLM service."""
+        if self.llm_service is None:
+            self.llm_service = await get_llm_service_async(model_name=self.model_name)
+        return self.llm_service
 
-            if response:
-                self.conversation_history.append(f"User: {query}")
-                self.conversation_history.append(f"Chatbot: {response}")
-                return response
-            else:
-                return "Sorry, I couldn't generate a response."
-
-        except Exception as e:
-            logger.error(f"Error processing query: {e}")
-            return f"Sorry, an error occurred while processing your query: {e}"
-
-    async def process_query_stream(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None):
-        """Process a user query and stream the response."""
-        try:
-            prompt_text = await self._build_prompt(query, stock_symbol, period)
-            response_stream = self.llm_service.generate_content_stream(
-                prompt=prompt_text,
-                system_instruction=prompt.get_system_instruction(),
-            )
-            
-            # Create a local copy of the response for this specific request
-            request_response = ""
-
-            async def generate_stream():
-                nonlocal request_response
-                async for chunk in response_stream:
-                    if chunk is not None:
-                        request_response += chunk
-                        yield f"data: {json.dumps({'text': chunk})}\n\n"
-            
-                # Only update conversation history after the stream is complete
-                # This prevents race conditions with other concurrent requests
-                self.conversation_history.append(f"User: {query}")
-                self.conversation_history.append(f"Chatbot: {request_response}")
-            
-            # Return the generator function
-            return generate_stream()
-
-        except Exception as e:
-            logger.error(f"Error processing query: {e}")
-            raise
-
-    async def get_stock_symbols_from_query(self, query: str) -> Optional[List[str]]:
-        """Get the stock symbol from the query."""
-        prompt_text = prompt.build_prompt_for_extract_stock_symbol(query)
-        stock_symbol_model = StockSymbol(symbol=query)
-        stock_symbol = self.llm_service.generate_content_with_structured_output(prompt_text, stock_symbol_model)
-        if stock_symbol:
-            try:
-                parsed_stock_symbol = stock_symbol.parsed
-                list_stock_symbol = [stock_symbol.symbol for stock_symbol in parsed_stock_symbol]
-                return list_stock_symbol
-            except:
-                return [stock_symbol.symbol]
-        return None
-    
-    async def automation_flow_stream(self, query: str) -> AsyncGenerator[str, None]:
-        """Get the financial report from the tools."""
-        tools = [get_stock_information_tools.get_stock_information_by_year,search_engine.search_information]
-
-        prompt_with_context = prompt.build_prompt_with_tools_for_automation(query, self.conversation_history)
-        response_stream = self.llm_service.generate_content_with_tools(prompt = prompt_with_context, operation_tools =  tools, system_instruction = prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION)
-        full_response = ""
+    async def get_or_create_session(self, session_id: str = None) -> str:
+        """Get an existing session or create a new one."""
+        if not session_id:
+            session_id = str(uuid.uuid4())
         
+        async with self.sessions_lock:
+            if session_id not in self.sessions:
+                self.sessions[session_id] = ChatSession(session_id)
+                logger.info(f"Created new session: {session_id}")
+        
+        return session_id
+
+    async def automation_flow_stream(self, query: str, session_id: str = None) -> AsyncGenerator[str, None]:
+        """Get the financial report from the tools - optimized for concurrency."""
+        # Ensure we have a valid session
+        session_id = await self.get_or_create_session(session_id)
+        session = self.sessions[session_id]
+        
+        llm_service = await self._get_llm_service()
+        tools = [search_engine.search_information, get_stock_information_tools.get_stock_information_by_year]
+
+        # Get a copy of the conversation history
+        current_history = await session.get_history()
+        
+        prompt_with_context = prompt.build_prompt_with_tools_for_automation(query, current_history)
+        
+        # The generator function that will be returned
         async def generate_stream():
-            nonlocal full_response
+            # Use a local variable to store the complete response for this specific request
+            full_response = ""
+            
+            # Get the response stream - this doesn't block other requests
+            response_stream = llm_service.generate_content_with_tools(
+                prompt=prompt_with_context, 
+                operation_tools=tools, 
+                system_instruction=prompt.SYSTEM_INSTRUCTION_FOR_AUTOMATION
+            )
+            
+            # Process chunks as they become available
             async for chunk in response_stream:
                 if chunk is not None:
                     full_response += chunk
                     yield f"data: {json.dumps({'text': chunk})}\n\n"
             
-            self.conversation_history.append(f"User: {query}")
-            self.conversation_history.append(f"Chatbot: {full_response}")
+            # Update conversation history after streaming is complete
+            await session.add_to_history(query, full_response)
         
+        # Return the generator function
         return generate_stream()
-
-    async def _build_prompt(self, query: str, stock_symbol: Optional[str] = None, period: Optional[str] = None) -> str:
-        """Build the appropriate prompt based on available context."""
-        financial_report_content = None
-        stock_price_info = None
-        # if stock_symbol is None, get the stock symbol from the query
-        if stock_symbol is None:
-            stock_symbols = await self.get_stock_symbols_from_query(query)
-            stock_symbol = stock_symbols[0] if stock_symbols else None
-            logger.info(f"Stock symbol: {stock_symbol}")
-
-        if stock_symbol:
-            financial_report = await self.mongo_service.get_financial_report_by_symbol_and_period(stock_symbol, period)
-            if financial_report:
-                financial_report_content = financial_report.get('content', '')
-                logger.info(f"Retrieved financial report for {stock_symbol} ({period})")
-            else:
-                logger.warning(f"No financial report found for symbol {stock_symbol} and period {period} in the database get from tools")
-                financial_report = self.get_financial_report_from_tools(stock_symbol, period)
-                if financial_report:
-                    financial_report_content = financial_report
-                    logger.info(f"Retrieved financial report for {stock_symbol} ({period}) from tools")
-                else:
-                    logger.warning(f"Could not retrieve financial report for {stock_symbol} ({period}) from tools") 
-            
-            
-            # Fetch stock price
-            try:
-                stock_price = get_stock_information.get_stock_price(stock_symbol)
-                if stock_price:
-                    stock_price_info = f"Current stock price of {stock_symbol}: {stock_price}"
-                    logger.info(f"Retrieved stock price for {stock_symbol}: {stock_price}")
-                else:
-                    logger.warning(f"Could not retrieve stock price for {stock_symbol}")
-            except Exception as e:
-                logger.error(f"Error fetching stock price for {stock_symbol}: {e}")
-
-        return self._build_prompt_based_on_context(financial_report_content, stock_price_info, stock_symbol, period, query)
-
-    def _build_prompt_based_on_context(self, financial_report_content: Optional[str], stock_price_info: Optional[str], stock_symbol: Optional[str], period: Optional[str], query: str) -> str:
-        """Build prompt based on available context."""
-        if financial_report_content and stock_price_info:
-            return prompt.build_prompt_with_financial_reports(
-                financial_report_content, 
-                query, 
-                self.conversation_history, 
-                stock_price_info
-            )
-        elif financial_report_content:
-            return prompt.build_prompt_with_financial_reports(
-                financial_report_content, 
-                query, 
-                self.conversation_history
-            )
-        elif stock_symbol and stock_price_info:
-            return prompt.build_prompt_with_stock_price(
-                stock_symbol, 
-                period, 
-                query, 
-                stock_price_info, 
-                self.conversation_history
-            )
-        elif stock_symbol:
-            return prompt.build_prompt_for_missing_financial_report(
-                stock_symbol, 
-                period, 
-                query, 
-                self.conversation_history
-            )
-        else:
-            return prompt.build_prompt_without_context(query, self.conversation_history)
     
+    async def clear_session(self, session_id: str) -> bool:
+        """Clear the conversation history for a specific session."""
+        async with self.sessions_lock:
+            if session_id in self.sessions:
+                await self.sessions[session_id].clear_history()
+                return True
+            return False
 
 
-default_chatbot_service = ChatbotService()
-chatbot_sessions: Dict[str, ChatbotService] = {}
+# Singleton instance of the ChatbotService
+_chatbot_service = None
+_service_lock = asyncio.Lock()
 
-
-def get_chatbot_service(
-    model_name: str = llm_config.default_model, session_id: str = None
-) -> ChatbotService:
-    """Get a chatbot service instance."""
-    global chatbot_sessions
-
-    if not session_id:
-        return default_chatbot_service
-
-    if session_id not in chatbot_sessions:
-        chatbot_sessions[session_id] = ChatbotService(model_name, session_id)
-
-    return chatbot_sessions[session_id]
+async def get_chatbot_service_async(model_name: str = llm_config.default_model) -> ChatbotService:
+    """Get the singleton chatbot service instance with proper async locking."""
+    global _chatbot_service
+    
+    async with _service_lock:
+        if _chatbot_service is None:
+            _chatbot_service = ChatbotService(model_name)
+    
+    return _chatbot_service
 
 
 if __name__ == "__main__":
     import asyncio
 
-    async def main():
-        chatbot = get_chatbot_service()
-        query = "Lợi nhuận của TCB trong quý năm ngoái"
+    async def test_concurrent_requests():
+        """Test function to simulate multiple concurrent requests."""
+        # Get the singleton chatbot service
+        chatbot = await get_chatbot_service_async()
+        
+        # Define multiple sessions and queries
+        session1 = await chatbot.get_or_create_session("session1")
+        session2 = await chatbot.get_or_create_session("session2")
+        
+        # Define different queries
+        query1 = "Thông tin về những biến động gần đây của tập đoàn SCB"
+        query2 = "Thông tin về những biến động gần đây của tập đoàn gelex và abbank"
+        query3 = "Thông tin về những biến động gần đây của tập đoàn Vietcombank"
+        query4 = "Thông tin về những biến động gần đây của tập đoàn BIDV"
 
-
-        response_stream = await chatbot.process_query(query)
-        print(response_stream)
-
-    asyncio.run(main())
+        # Process queries concurrently
+        async def process_query(session_id, query, delay=0):
+            print(f"Starting query for session {session_id}: {query}")
+            stream = await chatbot.automation_flow_stream(query, session_id)
+            async for chunk in stream:
+                # Simulate different consumer speeds
+                if delay:
+                    await asyncio.sleep(delay)
+                print(f"Session {session_id} chunk: {chunk}")
+            print(f"Query for session {session_id} complete")
+        
+        # Run all queries concurrently with different simulated consumer speeds
+        await asyncio.gather(
+            process_query(session1, query1, 0.1),
+            process_query(session2, query2, 0),
+            process_query(session1, query3, 0.05),
+            process_query(session2, query4, 0.02)
+        )
+    
+    # Run the test
+    asyncio.run(test_concurrent_requests())

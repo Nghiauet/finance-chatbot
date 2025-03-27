@@ -1,7 +1,5 @@
 """
-LLM Service for interacting with Google's Gemini AI.
-Provides centralized configuration and methods for text generation
-with key rotation, retry logic, and model fallback capabilities.
+LLM Service for interacting with Google's Gemini AI with optimized concurrency support.
 """
 from __future__ import annotations
 
@@ -35,7 +33,8 @@ class LLMService:
                  api_key_prefix: str = "GEMINI_API_KEY",
                  max_retries: int = 3,
                  retry_delay: float = 1.0,
-                 rate_limit_duration: int = 60):
+                 rate_limit_duration: int = 60,
+                 max_concurrent_requests: int = 20):
         """
         Initialize the LLM service.
         
@@ -46,6 +45,7 @@ class LLMService:
             max_retries: Maximum number of retry attempts
             retry_delay: Base delay between retries in seconds
             rate_limit_duration: Duration in seconds to avoid a rate-limited key
+            max_concurrent_requests: Maximum number of concurrent API requests
         """
         self.model_name = model_name
         self.backup_models = backup_models or []
@@ -65,10 +65,10 @@ class LLMService:
         self.client = genai.Client(api_key=initial_key)
         self.current_key = initial_key
         
-        # Create a semaphore to limit concurrent requests
-        self.request_semaphore = asyncio.Semaphore(20)  # Adjust number based on your rate limits
+        # Semaphore for limiting concurrent API requests (not streaming)
+        self.api_semaphore = asyncio.Semaphore(max_concurrent_requests)
         
-        logger.info(f"Initialized LLM service with model: {model_name}")
+        logger.info(f"Initialized LLM service with model: {model_name}, max concurrent requests: {max_concurrent_requests}")
         if backup_models:
             logger.info(f"Backup models configured: {', '.join(backup_models)}")
 
@@ -117,7 +117,7 @@ class LLMService:
             # Exponential backoff
             delay = self.retry_delay * (2 ** retry_count)
             logger.info(f"Rate limit encountered. Retrying in {delay:.2f}s (attempt {retry_count+1}/{self.max_retries})")
-            await asyncio.sleep(delay)  # Use asyncio.sleep instead of time.sleep
+            await asyncio.sleep(delay)
         
         return retry_count + 1, model_index
         
@@ -150,8 +150,8 @@ class LLMService:
         retry_count = 0
         model_index = 0
         
-        # Use semaphore to limit concurrent requests
-        async with self.request_semaphore:
+        # Use semaphore to limit concurrent API requests
+        async with self.api_semaphore:
             while True:
                 try:
                     # Get a fresh client with a new API key for each attempt
@@ -202,7 +202,7 @@ class LLMService:
         system_instruction: Optional[str] = None
     ) -> AsyncGenerator[Optional[str], None]:
         """
-        Generate content using the Gemini model with streaming, retries and model fallback.
+        Generate content using the Gemini model with streaming, optimized for concurrency.
         
         Args:
             prompt: The text prompt to send to the model.
@@ -215,11 +215,13 @@ class LLMService:
         """
         retry_count = 0
         model_index = 0
+        response_stream = None
         
-        # Use semaphore to limit concurrent requests
-        async with self.request_semaphore:
-            while True:
-                try:
+        # Get the stream with a semaphore - this is the only part that needs rate limiting
+        while response_stream is None:
+            try:
+                # Only use the semaphore for the API call, not for the entire streaming process
+                async with self.api_semaphore:
                     # Get a fresh client with a new API key for each attempt
                     current_key = await self._refresh_client()
                     
@@ -249,22 +251,28 @@ class LLMService:
                         config=config
                     )
                     
-                    for chunk in response_stream:
-                        yield chunk.text
-                        await asyncio.sleep(0)  # Yield control back to event loop
-                    
-                    # If we get here, streaming completed successfully
-                    return
-                        
-                except self.RATE_LIMIT_ERRORS as e:
+            except self.RATE_LIMIT_ERRORS as e:
+                # Use semaphore for retry handling to prevent too many retries at once
+                async with self.api_semaphore:
                     retry_count, model_index = await self._handle_rate_limit(
                         current_key, retry_count, e, model_index
                     )
                     
-                except Exception as e:
-                    logger.error(f"Error generating content stream: {str(e)}")
-                    yield None
-                    return
+            except Exception as e:
+                logger.error(f"Error initializing content stream: {str(e)}")
+                yield None
+                return
+        
+        # Once we have the stream, process it without holding the semaphore
+        # This allows multiple users to process their streams concurrently
+        try:
+            for chunk in response_stream:
+                yield chunk.text
+                await asyncio.sleep(0)  # Yield control back to event loop
+                
+        except Exception as e:
+            logger.error(f"Error processing content stream: {str(e)}")
+            yield None
 
     async def generate_content_with_tools(
         self,
@@ -273,7 +281,7 @@ class LLMService:
         operation_tools: Optional[List[Callable]] = None
     ) -> AsyncGenerator[Optional[str], None]:
         """
-        Generate content using the Gemini model with function calling tools.
+        Generate content using tools, optimized for concurrent streaming.
         
         Args:
             prompt: The text prompt to send to the model
@@ -285,17 +293,20 @@ class LLMService:
         """
         retry_count = 0
         model_index = 0
+        response_stream = None
         
-        # Use semaphore to limit concurrent requests
-        async with self.request_semaphore:
-            while True:
-                try:
+        # Get the stream with a semaphore - this is the only part that needs rate limiting
+        while response_stream is None:
+            try:
+                # Only use the semaphore for the API call, not for the entire streaming process
+                async with self.api_semaphore:
                     # Get a fresh client with a new API key for each attempt
                     current_key = await self._refresh_client()
                     
                     # Use the appropriate model based on retries
                     model_name = self._get_model_name(model_index)
                     
+                    # Initialize the response stream - this is where we need rate limit protection
                     response_stream = self.client.models.generate_content_stream(
                         model=model_name,
                         config={
@@ -310,23 +321,29 @@ class LLMService:
                         },
                         contents=[prompt],
                     )
-
-                    for chunk in response_stream:
-                        yield chunk.text
-                        await asyncio.sleep(0)  # Yield control back to event loop
                     
-                    # If we get here, streaming completed successfully
-                    return
-
-                except self.RATE_LIMIT_ERRORS as e:
+            except self.RATE_LIMIT_ERRORS as e:
+                # Use semaphore for retry handling to prevent too many retries at once
+                async with self.api_semaphore:
                     retry_count, model_index = await self._handle_rate_limit(
                         current_key, retry_count, e, model_index
                     )
                     
-                except Exception as e:
-                    logger.error(f"Error generating content with tools: {str(e)}")
-                    yield None
-                    return
+            except Exception as e:
+                logger.error(f"Error initializing content stream with tools: {str(e)}")
+                yield None
+                return
+        
+        # Once we have the stream, process it without holding the semaphore
+        # This allows multiple users to process their streams concurrently
+        try:
+            for chunk in response_stream:
+                yield chunk.text
+                await asyncio.sleep(0)  # Yield control back to event loop
+                
+        except Exception as e:
+            logger.error(f"Error processing content stream with tools: {str(e)}")
+            yield None
 
     async def generate_content_with_structured_output(
         self,
@@ -346,8 +363,8 @@ class LLMService:
         retry_count = 0
         model_index = 0
         
-        # Use semaphore to limit concurrent requests
-        async with self.request_semaphore:
+        # Use semaphore to limit concurrent API requests
+        async with self.api_semaphore:
             while True:
                 try:
                     # Get a fresh client with a new API key for each attempt
@@ -377,59 +394,18 @@ class LLMService:
 
 
 # Lock for accessing the global service
-# _service_lock = asyncio.Lock()
+_service_lock = asyncio.Lock()
 # Set up global service
-# default_llm_service = None
+default_llm_service = None
 
-# async def get_llm_service_async(
-#     model_name: str = llm_config.default_model,
-#     backup_models: Optional[List[str]] = None,
-#     api_key_prefix: str = "GEMINI_API_KEY",
-#     force_new: bool = False
-# ) -> LLMService:
-#     """
-#     Get an LLM service instance with proper async locking.
-    
-#     Args:
-#         model_name: Name of the model to use
-#         backup_models: List of backup models to use if primary model fails
-#         api_key_prefix: Prefix for environment variables containing API keys
-#         force_new: Whether to force creation of a new instance
-        
-#     Returns:
-#         LLM service instance
-#     """
-#     global default_llm_service
-    
-#     # Initialize default values if None
-#     if backup_models is None:
-#         backup_models = llm_config.backup_models if hasattr(llm_config, 'backup_models') else []
-    
-#     async with _service_lock:
-#         # Create a new instance if needed
-#         if (default_llm_service is None or 
-#             force_new or 
-#             model_name != default_llm_service.model_name or
-#             backup_models != default_llm_service.backup_models or
-#             api_key_prefix != default_llm_service.api_key_prefix):
-            
-#             default_llm_service = LLMService(
-#                 model_name=model_name, 
-#                 backup_models=backup_models,
-#                 api_key_prefix=api_key_prefix
-#             )
-    
-#     return default_llm_service
-
-# For backward compatibility
-def get_llm_service(
+async def get_llm_service_async(
     model_name: str = llm_config.default_model,
     backup_models: Optional[List[str]] = None,
     api_key_prefix: str = "GEMINI_API_KEY",
     force_new: bool = False
 ) -> LLMService:
     """
-    Get an LLM service instance (synchronous version for backward compatibility).
+    Get an LLM service instance with proper async locking.
     
     Args:
         model_name: Name of the model to use
@@ -446,38 +422,18 @@ def get_llm_service(
     if backup_models is None:
         backup_models = llm_config.backup_models if hasattr(llm_config, 'backup_models') else []
     
-    # Create a new instance if needed
-    if (default_llm_service is None or 
-        force_new or 
-        model_name != default_llm_service.model_name or
-        backup_models != default_llm_service.backup_models or
-        api_key_prefix != default_llm_service.api_key_prefix):
-        
-        default_llm_service = LLMService(
-            model_name=model_name, 
-            backup_models=backup_models,
-            api_key_prefix=api_key_prefix
-        )
+    async with _service_lock:
+        # Create a new instance if needed
+        if (default_llm_service is None or 
+            force_new or 
+            model_name != default_llm_service.model_name or
+            backup_models != default_llm_service.backup_models or
+            api_key_prefix != default_llm_service.api_key_prefix):
+            
+            default_llm_service = LLMService(
+                model_name=model_name, 
+                backup_models=backup_models,
+                api_key_prefix=api_key_prefix
+            )
     
     return default_llm_service
-
-
-if __name__ == "__main__":
-    # Example: Define backup models
-    backup_models = ["gemini-1.0-pro", "gemini-1.5-flash"]
-    
-    async def test_service():
-        # Get service with primary and backup models
-        llm_service = await get_llm_service_async(
-            model_name="gemini-1.5-pro", 
-            backup_models=backup_models
-        )
-        
-        # Test the service
-        prompt = "What is the current stock price of FPT?"
-        async for chunk in llm_service.generate_content_with_tools(prompt, operation_tools=[]):
-            if chunk:
-                print(chunk, end="")
-    
-    # Run the test
-    asyncio.run(test_service())
