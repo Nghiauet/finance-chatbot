@@ -11,7 +11,7 @@ load_dotenv()
 GOOGLE_API_KEY = settings.SEARCH_ENGINE_API_KEY
 GOOGLE_CSE_ID = settings.SEARCH_ENGINE_CSE_ID
 
-def search_google(query, num_results=5):
+def search_google(query, num_results=10):
     """
     Search Google for a given query and return a list of URLs.
     
@@ -152,7 +152,7 @@ def search_information(search_query: str) -> str:
         str: Organized text content from the top search results
     """
     # Search and extract content from websites
-    num_results = 5
+    num_results = 10
     results = search_and_extract(search_query, num_results)
     
     if not results:

@@ -1,31 +1,124 @@
 """
 LLM Service for interacting with Google's Gemini AI.
-Provides centralized configuration and methods for text generation.
+Provides centralized configuration and methods for text generation
+with key rotation, retry logic, and model fallback capabilities.
 """
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, Iterator
+import time
+from typing import Optional, Dict, Any, Iterator, List, Callable, Union
 from pathlib import Path
 
 from google import genai
 from google.genai import types
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, TooManyRequests
 from src.core.config import llm_config
 from loguru import logger
 from pydantic import BaseModel
 
+# Import the key manager
+from src.core.llm_key_manager import get_key_manager
+
 class LLMService:
-    """Service for interacting with Google's Gemini AI models."""
+    """
+    Service for interacting with Google's Gemini AI models with key rotation,
+    automatic retries, and model fallback capabilities.
+    """
     
-    def __init__(self, model_name: str = llm_config.default_model):
+    # Rate limit error types that should trigger retries
+    RATE_LIMIT_ERRORS = (ResourceExhausted, ServiceUnavailable, TooManyRequests)
+    
+    def __init__(self, 
+                 model_name: str = llm_config.default_model, 
+                 backup_models: Optional[List[str]] = None,
+                 api_key_prefix: str = "GEMINI_API_KEY",
+                 max_retries: int = 3,
+                 retry_delay: float = 1.0,
+                 rate_limit_duration: int = 60):
         """
         Initialize the LLM service.
         
         Args:
             model_name: Name of the Gemini model to use
+            backup_models: List of backup models to use if primary model fails
+            api_key_prefix: Prefix for environment variables containing API keys
+            max_retries: Maximum number of retry attempts
+            retry_delay: Base delay between retries in seconds
+            rate_limit_duration: Duration in seconds to avoid a rate-limited key
         """
         self.model_name = model_name
-        self.client = genai.Client(api_key=llm_config.api_key)
+        self.backup_models = backup_models or []
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.rate_limit_duration = rate_limit_duration
+        self.api_key_prefix = api_key_prefix
+        
+        # Get the key manager for this provider
+        self.key_manager = get_key_manager(api_key_prefix)
+        
+        # Initialize client with a random key
+        initial_key = self.key_manager.get_random_key()
+        self.client = genai.Client(api_key=initial_key)
+        self.current_key = initial_key
+        
         logger.info(f"Initialized LLM service with model: {model_name}")
+        if backup_models:
+            logger.info(f"Backup models configured: {', '.join(backup_models)}")
+
+    def _refresh_client(self) -> str:
+        """
+        Get a fresh client with a different API key.
+        
+        Returns:
+            The API key being used
+        """
+        key = self.key_manager.get_random_key()
+        self.client = genai.Client(api_key=key)
+        self.current_key = key
+        return key
+        
+    def _handle_rate_limit(self, current_key: str, retry_count: int, 
+                          error: Exception, model_index: int = 0) -> tuple:
+        """
+        Handle rate limit errors with retries and model fallback.
+        
+        Args:
+            current_key: The API key that encountered a rate limit
+            retry_count: Current retry attempt count
+            error: The exception that was raised
+            model_index: Current model index (0 = primary, 1+ = backup models)
+            
+        Returns:
+            Tuple of (new retry count, new model index)
+        """
+        # Mark the current key as rate limited
+        self.key_manager.mark_key_rate_limited(current_key, self.rate_limit_duration)
+        
+        # If we've exhausted retries with the current model, try the next model
+        if retry_count >= self.max_retries:
+            model_index += 1
+            retry_count = 0
+            
+            # If we've tried all models, raise the exception
+            if model_index >= len(self.backup_models) + 1:
+                logger.error("All models exhausted, unable to complete request")
+                raise error
+                
+            logger.warning(f"Switching to backup model: {self._get_model_name(model_index)}")
+        else:
+            # Exponential backoff
+            delay = self.retry_delay * (2 ** retry_count)
+            logger.info(f"Rate limit encountered. Retrying in {delay:.2f}s (attempt {retry_count+1}/{self.max_retries})")
+            time.sleep(delay)
+        
+        return retry_count + 1, model_index
+        
+    def _get_model_name(self, model_index: int) -> str:
+        """Get the model name based on the model index."""
+        if model_index == 0:
+            return self.model_name
+        else:
+            return self.backup_models[model_index - 1]
 
     def generate_content(
         self, 
@@ -35,7 +128,7 @@ class LLMService:
         system_instruction: Optional[str] = None
     ) -> Optional[str]:
         """
-        Generate content using the Gemini model.
+        Generate content using the Gemini model with retry logic and model fallback.
         
         Args:
             prompt: The text prompt to send to the model
@@ -46,36 +139,50 @@ class LLMService:
         Returns:
             Generated text or None if generation failed
         """
-        try:
-            contents = [prompt]
-            
-            # Add file if provided
-            if file_path:
-                file_obj = self.client.files.upload(file=file_path)
-                contents.append(file_obj)
-            
-            # Create generate content config with system instruction if provided
-            config = types.GenerateContentConfig()
-            if system_instruction:
-                config.system_instruction = system_instruction
-            
-            # Apply generation config if provided
-            if generation_config:
-                for key, value in generation_config.items():
-                    setattr(config, key, value)
-            
-            # Generate content
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=config
-            )
-            
-            return response.text if response.text else None
-            
-        except Exception as e:
-            logger.error(f"Error generating content: {str(e)}")
-            return None
+        retry_count = 0
+        model_index = 0
+        
+        while True:
+            try:
+                # Get a fresh client with a new API key for each attempt
+                current_key = self._refresh_client()
+                
+                # Prepare content
+                contents = [prompt]
+                if file_path:
+                    file_obj = self.client.files.upload(file=file_path)
+                    contents.append(file_obj)
+                
+                # Create generate content config
+                config = types.GenerateContentConfig()
+                if system_instruction:
+                    config.system_instruction = system_instruction
+                
+                # Apply generation config if provided
+                if generation_config:
+                    for key, value in generation_config.items():
+                        setattr(config, key, value)
+                
+                # Use the appropriate model based on retries
+                model_name = self._get_model_name(model_index)
+                
+                # Generate content
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+                
+                return response.text if response.text else None
+                
+            except self.RATE_LIMIT_ERRORS as e:
+                retry_count, model_index = self._handle_rate_limit(
+                    current_key, retry_count, e, model_index
+                )
+                
+            except Exception as e:
+                logger.error(f"Error generating content: {str(e)}")
+                return None
 
     def generate_content_stream(
         self, 
@@ -85,7 +192,7 @@ class LLMService:
         system_instruction: Optional[str] = None
     ) -> Iterator[Optional[str]]:
         """
-        Generate content using the Gemini model with streaming.
+        Generate content using the Gemini model with streaming, retries and model fallback.
         
         Args:
             prompt: The text prompt to send to the model.
@@ -96,118 +203,216 @@ class LLMService:
         Yields:
             The generated text in chunks.
         """
-        try:
-            contents = [prompt]
-            
-            # Add file if provided
-            if file_path:
-                file_obj = self.client.files.upload(file=file_path)
-                contents.append(file_obj)
-            
-            # Create generate content config with system instruction if provided
-            config = types.GenerateContentConfig()
-            if system_instruction:
-                config.system_instruction = system_instruction
+        retry_count = 0
+        model_index = 0
+        
+        while True:
+            try:
+                # Get a fresh client with a new API key for each attempt
+                current_key = self._refresh_client()
                 
-            # Apply generation config if provided
-            if generation_config:
-                for key, value in generation_config.items():
-                    setattr(config, key, value)
-            
-            # Generate content with streaming
-            response_stream = self.client.models.generate_content_stream(
-                model=self.model_name,
-                contents=contents,
-                config=config
-            )
-            
-            for chunk in response_stream:
-                yield chunk.text
+                # Prepare content
+                contents = [prompt]
+                if file_path:
+                    file_obj = self.client.files.upload(file=file_path)
+                    contents.append(file_obj)
                 
-        except Exception as e:
-            logger.error(f"Error generating content stream: {str(e)}")
-            yield None
+                # Create generate content config
+                config = types.GenerateContentConfig()
+                if system_instruction:
+                    config.system_instruction = system_instruction
+                    
+                # Apply generation config if provided
+                if generation_config:
+                    for key, value in generation_config.items():
+                        setattr(config, key, value)
+                
+                # Use the appropriate model based on retries
+                model_name = self._get_model_name(model_index)
+                
+                # Generate content with streaming
+                response_stream = self.client.models.generate_content_stream(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+                
+                for chunk in response_stream:
+                    yield chunk.text
+                
+                # If we get here, streaming completed successfully
+                return
+                    
+            except self.RATE_LIMIT_ERRORS as e:
+                retry_count, model_index = self._handle_rate_limit(
+                    current_key, retry_count, e, model_index
+                )
+                
+            except Exception as e:
+                logger.error(f"Error generating content stream: {str(e)}")
+                yield None
+                return
 
     def generate_content_with_tools(
         self,
         prompt: str,
         system_instruction: Optional[str] = None,
         operation_tools: Optional[List[Callable]] = None
-    ) -> Optional[str]:
+    ) -> Iterator[Optional[str]]:
         """
         Generate content using the Gemini model with function calling tools.
         
         Args:
             prompt: The text prompt to send to the model
             system_instruction: Optional system instruction for the model
+            operation_tools: Optional list of callable tools
             
-        Returns:
-            Generated text or None if generation failed
+        Yields:
+            Generated text chunks or None if generation failed
         """
-        try:
-            response_stream = self.client.models.generate_content_stream(
-                model = self.model_name,
-                config = {
-                    "tools": operation_tools,
-                    "automatic_function_calling": {"disable": False},
-                        'tool_config': {
-                    'function_calling_config': {
-                        'mode': 'AUTO'
-                    }
-                },
-                "system_instruction": system_instruction,
-            },
-                contents = [prompt],
-            )
-
-            for chunk in response_stream:
-                yield chunk.text
-
+        retry_count = 0
+        model_index = 0
+        
+        while True:
+            try:
+                # Get a fresh client with a new API key for each attempt
+                current_key = self._refresh_client()
                 
-        except Exception as e:
-            logger.error(f"Error generating content with tools: {str(e)}")
-            return None
+                # Use the appropriate model based on retries
+                model_name = self._get_model_name(model_index)
+                
+                response_stream = self.client.models.generate_content_stream(
+                    model=model_name,
+                    config={
+                        "tools": operation_tools,
+                        "automatic_function_calling": {"disable": False},
+                        'tool_config': {
+                            'function_calling_config': {
+                                'mode': 'AUTO'
+                            }
+                        },
+                        "system_instruction": system_instruction,
+                    },
+                    contents=[prompt],
+                )
+
+                for chunk in response_stream:
+                    yield chunk.text
+                
+                # If we get here, streaming completed successfully
+                return
+
+            except self.RATE_LIMIT_ERRORS as e:
+                retry_count, model_index = self._handle_rate_limit(
+                    current_key, retry_count, e, model_index
+                )
+                
+            except Exception as e:
+                logger.error(f"Error generating content with tools: {str(e)}")
+                yield None
+                return
 
     def generate_content_with_structured_output(
         self,
         prompt: str,
         structured_output: BaseModel
     ) -> Optional[BaseModel]:
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=[prompt],
-            config={
-                'response_mime_type': 'application/json',
-                'response_schema': list[structured_output],
-            },
-        )
-        return response
-# Singleton instance for easy import
-default_llm_service = LLMService()
+        """
+        Generate content with structured output format.
+        
+        Args:
+            prompt: The text prompt to send to the model
+            structured_output: Pydantic model for structured output
+            
+        Returns:
+            Structured output or None if generation failed
+        """
+        retry_count = 0
+        model_index = 0
+        
+        while True:
+            try:
+                # Get a fresh client with a new API key for each attempt
+                current_key = self._refresh_client()
+                
+                # Use the appropriate model based on retries
+                model_name = self._get_model_name(model_index)
+                
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt],
+                    config={
+                        'response_mime_type': 'application/json',
+                        'response_schema': list[structured_output],
+                    },
+                )
+                return response
+                
+            except self.RATE_LIMIT_ERRORS as e:
+                retry_count, model_index = self._handle_rate_limit(
+                    current_key, retry_count, e, model_index
+                )
+                
+            except Exception as e:
+                logger.error(f"Error generating structured output: {str(e)}")
+                return None
 
 
-def get_llm_service(model_name: str = llm_config.default_model) -> LLMService:
+# Set up global service
+default_llm_service = None
+
+def get_llm_service(
+    model_name: str = llm_config.default_model,
+    backup_models: Optional[List[str]] = None,
+    api_key_prefix: str = "GEMINI_API_KEY",
+    force_new: bool = False
+) -> LLMService:
     """
     Get an LLM service instance.
     
     Args:
         model_name: Name of the model to use
+        backup_models: List of backup models to use if primary model fails
+        api_key_prefix: Prefix for environment variables containing API keys
+        force_new: Whether to force creation of a new instance
         
     Returns:
         LLM service instance
     """
     global default_llm_service
     
-    # Create a new instance if model name differs
-    if model_name != default_llm_service.model_name:
-        return LLMService(model_name)
+    # Initialize default values if None
+    if backup_models is None:
+        backup_models = llm_config.backup_models if hasattr(llm_config, 'backup_models') else []
+    
+    # Create a new instance if needed
+    if (default_llm_service is None or 
+        force_new or 
+        model_name != default_llm_service.model_name or
+        backup_models != default_llm_service.backup_models or
+        api_key_prefix != default_llm_service.api_key_prefix):
+        
+        default_llm_service = LLMService(
+            model_name=model_name, 
+            backup_models=backup_models,
+            api_key_prefix=api_key_prefix
+        )
     
     return default_llm_service
 
 
 if __name__ == "__main__":
-    llm_service = get_llm_service()
-    # Test the function calling
+    # Example: Define backup models
+    backup_models = ["gemini-1.0-pro", "gemini-1.5-flash"]
+    
+    # Get service with primary and backup models
+    llm_service = get_llm_service(
+        model_name="gemini-1.5-pro", 
+        backup_models=backup_models
+    )
+    
+    # Test the service
     prompt = "What is the current stock price of FPT?"
-    response = llm_service.generate_content_with_tools(prompt)
-    print(response)
+    for chunk in llm_service.generate_content_with_tools(prompt):
+        if chunk:
+            print(chunk, end="")
