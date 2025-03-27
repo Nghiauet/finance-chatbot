@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional
 import cachetools.func
 import re
 from loguru import logger
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -31,6 +32,8 @@ REQUEST_HEADERS = {
 
 # Shared aiohttp session for connection pooling
 _session = None
+# Semaphore for limiting concurrent searches
+_search_semaphore = asyncio.Semaphore(5)  # Limit to 5 concurrent searches
 
 async def get_session():
     """Get or create a shared aiohttp session for connection pooling."""
@@ -68,6 +71,7 @@ async def search_google(query, num_results=10):
         session = await get_session()
         async with session.get(url, params=params, timeout=CONNECTION_TIMEOUT) as response:
             if response.status != 200:
+                logger.warning(f"Google search API returned status {response.status} for query: {query}")
                 return []
             
             # Parse the response
@@ -75,6 +79,7 @@ async def search_google(query, num_results=10):
             
             # Check if there are search results
             if 'items' not in results:
+                logger.info(f"No search results found for query: {query}")
                 return []
             
             # Extract relevant information from search results
@@ -86,9 +91,11 @@ async def search_google(query, num_results=10):
                     'snippet': item.get('snippet', 'No snippet')
                 })
             
+            logger.info(f"Found {len(search_results)} search results for query: {query}")
             return search_results
         
     except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as e:
+        logger.error(f"Error in Google search for query '{query}': {str(e)}")
         return []
 
 async def extract_content_from_url(url: str) -> str:
@@ -103,10 +110,12 @@ async def extract_content_from_url(url: str) -> str:
     """
     # Skip URLs that are likely to be problematic
     if not url or not url.startswith(('http://', 'https://')):
+        logger.warning(f"Invalid URL format: {url}")
         return "Invalid URL format"
     
     # Check for file types that are not HTML (images, PDFs, etc.)
     if re.search(r'\.(jpg|jpeg|png|gif|pdf|doc|docx|xls|xlsx|zip|tar)$', url, re.IGNORECASE):
+        logger.warning(f"URL points to a non-HTML file: {url}")
         return "URL points to a non-HTML file"
     
     try:
@@ -119,11 +128,13 @@ async def extract_content_from_url(url: str) -> str:
             ssl=False  # Speed up by skipping SSL verification
         ) as response:
             if response.status != 200:
+                logger.warning(f"Got status {response.status} when extracting content from {url}")
                 return ""
             
             # Check content type to ensure it's HTML
             content_type = response.headers.get('Content-Type', '')
             if 'text/html' not in content_type.lower():
+                logger.warning(f"Content type is not HTML: {content_type} for URL: {url}")
                 return ""
             
             # Get the HTML content with a streaming approach
@@ -149,11 +160,14 @@ async def extract_content_from_url(url: str) -> str:
             text = re.sub(r'\s+', ' ', text)  # Replace multiple spaces with single space
             text = text[:MAX_CONTENT_LENGTH] + ("..." if len(text) > MAX_CONTENT_LENGTH else "")
             
+            logger.debug(f"Successfully extracted {len(text)} characters from {url}")
             return text
         
     except (aiohttp.ClientError, asyncio.TimeoutError, UnicodeDecodeError) as e:
+        logger.error(f"Error extracting content from {url}: {str(e)}")
         return ""
-    except Exception:
+    except Exception as e:
+        logger.exception(f"Unexpected error extracting content from {url}: {str(e)}")
         return ""
 
 async def search_and_extract(query: str, num_results: int = 3) -> List[Dict[str, Any]]:
@@ -171,6 +185,7 @@ async def search_and_extract(query: str, num_results: int = 3) -> List[Dict[str,
     search_results = await search_google(query, num_results)
     
     if not search_results:
+        logger.warning(f"No search results found for query: {query}")
         return []
     
     # Extract content from each website concurrently with a semaphore to limit concurrency
@@ -193,87 +208,124 @@ async def search_and_extract(query: str, num_results: int = 3) -> List[Dict[str,
     results_with_content = await asyncio.gather(*tasks)
     
     # Filter out empty results
-    return [r for r in results_with_content if r['content']]
-
-# Cache the search results
-@lru_cache(maxsize=50)
-def _cached_search_result(query: str, num_results: int = 10) -> str:
-    """Cached version of the search result to avoid redundant searches."""
+    valid_results = [r for r in results_with_content if r['content']]
+    logger.info(f"Extracted content from {len(valid_results)} out of {len(search_results)} search results for query: {query}")
     
-    async def _run_complete_search():
-        start_time = time.time()
-        
-        # Search and extract content from websites
-        results = await search_and_extract(query, num_results)
-        
-        if not results:
-            return "No results found for the given query."
-        
-        # Organize the extracted content into a readable format
-        organized_content = []
-        
-        for i, result in enumerate(results, 1):
-            if not result['content']:
-                continue
-                
-            # Format each result with title, URL, and content
-            result_text = f"SOURCE {i}: {result['title']}\n"
-            result_text += f"URL: {result['url']}\n"
-            result_text += f"SUMMARY: {result['snippet']}\n"
-            result_text += f"\nCONTENT:\n{result['content']}\n"
-            result_text += "-" * 80 + "\n"  # Separator between results
-            
-            organized_content.append(result_text)
-        
-        # Join all organized content into a single string
-        content = "\n".join(organized_content)
-        
-        # Add timing information
-        elapsed = time.time() - start_time
-        content += f"\nSearch completed in {elapsed:.2f} seconds."
-        
-        return content
-    
-    # Execute the search in a new event loop
-    loop = asyncio.new_event_loop()
-    try:
-        result = loop.run_until_complete(_run_complete_search())
-        # Clean up session at the end
-        if _session and not _session.closed:
-            loop.run_until_complete(_session.close())
-        return result
-    finally:
-        loop.close()
+    return valid_results
 
-def search_information(search_query: str) -> str:
+# LRU cache for search results with a process-safe wrapper
+# We'll use a dictionary as an in-memory cache
+_search_cache = {}
+_cache_lock = asyncio.Lock()  # Lock for thread-safe cache operations
+
+async def search_information(search_query: str) -> str:
     """
-    Optimized synchronous function to search for information based on a query.
+    Fully asynchronous function to search for information based on a query.
     
     Args:
         search_query: The search query
+        num_results: Number of search results to use (default 5)
         
     Returns:
         str: Organized text content from the top search results
     """
     logger.info(f"Searching for information: {search_query}")
-    try:
-        # Use ThreadPoolExecutor for running the async code
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_cached_search_result, search_query, 5)  # Reduce to 5 results for speed
-            return future.result(timeout=30)  # Add a timeout for the entire operation
-    except concurrent.futures.TimeoutError:
-        return "Search timed out. Please try a more specific query."
-    except Exception as e:
-        return f"Error: {str(e)}"
+    num_results = 10
+    # Check cache first
+    cache_key = f"{search_query}_{num_results}"
+    async with _cache_lock:
+        cached_result = _search_cache.get(cache_key)
+        if cached_result:
+            cache_time, result = cached_result
+            # Return cached result if it's less than an hour old
+            if time.time() - cache_time < CACHE_TTL:
+                logger.info(f"Returning cached result for query: {search_query}")
+                return result
+    
+    # Use a semaphore to limit concurrent searches to prevent overloading
+    async with _search_semaphore:
+        try:
+            start_time = time.time()
+            
+            # Search and extract content
+            results = await search_and_extract(search_query, num_results)
+            
+            if not results:
+                no_results_msg = "No results found for the given query."
+                logger.warning(f"{no_results_msg} Query: {search_query}")
+                return no_results_msg
+            
+            # Organize the extracted content
+            organized_content = []
+            
+            for i, result in enumerate(results, 1):
+                if not result['content']:
+                    continue
+                    
+                # Format each result
+                result_text = f"SOURCE {i}: {result['title']}\n"
+                result_text += f"URL: {result['url']}\n"
+                result_text += f"SUMMARY: {result['snippet']}\n"
+                result_text += f"\nCONTENT:\n{result['content']}\n"
+                result_text += "-" * 80 + "\n"  # Separator
+                
+                organized_content.append(result_text)
+            
+            # Combine all content
+            content = "\n".join(organized_content)
+            
+            # Add timing information
+            elapsed = time.time() - start_time
+            content += f"\nSearch completed in {elapsed:.2f} seconds."
+            
+            # Cache the result
+            async with _cache_lock:
+                _search_cache[cache_key] = (time.time(), content)
+                
+                # Clean up old cache entries if there are too many
+                if len(_search_cache) > 100:
+                    now = time.time()
+                    # Remove oldest and expired entries
+                    expired_keys = [k for k, (t, _) in _search_cache.items() if now - t > CACHE_TTL]
+                    for k in expired_keys:
+                        _search_cache.pop(k, None)
+            
+            logger.info(f"Search completed for '{search_query}' in {elapsed:.2f} seconds with {len(organized_content)} results")
+            return content
+            
+        except asyncio.TimeoutError:
+            error_msg = "Search timed out. Please try a more specific query."
+            logger.error(f"{error_msg} Query: {search_query}")
+            return error_msg
+        except Exception as e:
+            error_msg = f"Error during search: {str(e)}"
+            logger.exception(f"{error_msg} Query: {search_query}")
+            return error_msg
 
 async def main():
     """
     Main function to run the program.
     """
-    # Example usage of search_information as a synchronous function
+    # Example usage of search_information as an async function
     query = "giá cổ phiếu MSH"
-    result = search_information(query)
+    result = await search_information(query)
     print(result)
+    
+    # Demonstrate concurrent search capability
+    search_queries = [
+        "giá cổ phiếu VNM",
+        "tình hình kinh doanh FPT",
+        "báo cáo tài chính Vietcombank"
+    ]
+    
+    # Run multiple searches concurrently
+    results = await asyncio.gather(*[search_information(q) for q in search_queries])
+    
+    # Print summary
+    for i, (query, result) in enumerate(zip(search_queries, results), 1):
+        print(f"\nResult {i} for query: {query}")
+        print(f"Length: {len(result)} characters")
+        print(f"Preview: {result[:100]}...")
 
 if __name__ == "__main__":
     asyncio.run(main())

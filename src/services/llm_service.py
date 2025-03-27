@@ -14,7 +14,7 @@ from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, To
 from src.core.config import llm_config
 from loguru import logger
 from pydantic import BaseModel
-
+from src.services.tools.search_engine import search_information
 # Import the key manager
 from src.core.llm_key_manager import get_key_manager
 
@@ -127,7 +127,6 @@ class LLMService:
             return self.model_name
         else:
             return self.backup_models[model_index - 1]
-
     async def generate_content_with_tools(
         self,
         prompt: str,
@@ -145,108 +144,118 @@ class LLMService:
         Yields:
             Generated text chunks or None if generation failed
         """
+        logger.info("Starting generate_content_with_tools")
         retry_count = 0
         model_index = 0
         response_stream = None
-        
+
         # Get the stream with a semaphore - this is the only part that needs rate limiting
         while response_stream is None:
             try:
+                logger.info(f"Attempting to get response stream (retry_count={retry_count}, model_index={model_index})")
+                
                 # Only use the semaphore for the API call, not for the entire streaming process
                 async with self.api_semaphore:
+                    logger.info("Acquired API semaphore")
+                    
                     # Get a fresh client with a new API key for each attempt
                     current_key = await self._refresh_client()
+                    logger.info(f"Refreshed client with key: {current_key}")
                     
                     # Use the appropriate model based on retries
                     model_name = self._get_model_name(model_index)
+                    logger.info(f"Using model: {model_name}")
                     
                     # Initialize the response stream - this is where we need rate limit protection
+                    logger.info("Initializing response stream")
+                    
+                    # Prepare initial content
+                    contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+                    
+                    # Configure tools
+                    config_tools = {
+                        "tools": operation_tools,
+                        "automatic_function_calling": {"disable": True},
+                        "tool_config": {
+                            "function_calling_config": {
+                                "mode": "AUTO"
+                            }
+                        },
+                        "system_instruction": system_instruction,
+                    }
+                    
+                    # Make initial call to get function/tool call
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        config=config_tools,
+                        contents=contents,
+                    )
+                    
+                    
+                    if response.candidates and response.candidates[0].content.parts:
+                        for part in response.candidates[0].content.parts:
+                            if part.function_call:
+                                tool_call = part.function_call
+                                logger.info(f"Tool call: {tool_call}")
+                                
+                                # Find the corresponding tool
+                                tool = next((t for t in operation_tools if t.__name__ == tool_call.name), None)
+                                if not tool:
+                                    logger.warning(f"Tool {tool_call.name} not found in available tools.")
+                                    continue
+                                
+                                try:
+                                    # Execute the tool
+                                    result = await tool(**tool_call.args)
+                                    logger.info(f"Tool {tool_call.name} results: {result}")
+                                    
+                                    # Create function response part
+                                    function_response_part = types.Part.from_function_response(
+                                        name=tool_call.name,
+                                        response={"result": result}
+                                    )
+
+                                    # Add model's function call and function response to conversation
+                                    contents.append(types.Content(role="model", parts=[types.Part(function_call=tool_call)]))
+                                    contents.append(types.Content(role="user", parts=[function_response_part]))
+                                except Exception as e:
+                                    logger.error(f"Error executing tool {tool_call.name}: {e}")
+
+                                
+                    # Get streaming response
                     response_stream = self.client.models.generate_content_stream(
                         model=model_name,
-                        config={
-                            "tools": operation_tools,
-                            "automatic_function_calling": {"disable": False},
-                            'tool_config': {
-                                'function_calling_config': {
-                                    'mode': 'AUTO'
-                                }
-                            },
-                            "system_instruction": system_instruction,
-                        },
-                        contents=[prompt],
+                        config=config_tools,
+                        contents=contents
                     )
                     
             except self.RATE_LIMIT_ERRORS as e:
+                logger.warning(f"Rate limit error encountered: {e}")
+                
                 # Use semaphore for retry handling to prevent too many retries at once
                 async with self.api_semaphore:
+                    logger.info("Acquired API semaphore for retry handling")
                     retry_count, model_index = await self._handle_rate_limit(
                         current_key, retry_count, e, model_index
                     )
+                    logger.info(f"Retry handling complete. New retry_count={retry_count}, model_index={model_index}")
                     
             except Exception as e:
                 logger.error(f"Error initializing content stream with tools: {str(e)}")
                 yield None
                 return
         
-        # Once we have the stream, process it without holding the semaphore
-        # This allows multiple users to process their streams concurrently
+        # Process the response stream
         try:
+            logger.info("Processing response stream")
             for chunk in response_stream:
+                logger.debug(f"Received chunk: {chunk.text}")
                 yield chunk.text
                 await asyncio.sleep(0)  # Yield control back to event loop
                 
         except Exception as e:
             logger.error(f"Error processing content stream with tools: {str(e)}")
             yield None
-
-    async def generate_content_with_structured_output(
-        self,
-        prompt: str,
-        structured_output: BaseModel
-    ) -> Optional[BaseModel]:
-        """
-        Generate content with structured output format.
-        
-        Args:
-            prompt: The text prompt to send to the model
-            structured_output: Pydantic model for structured output
-            
-        Returns:
-            Structured output or None if generation failed
-        """
-        retry_count = 0
-        model_index = 0
-        
-        # Use semaphore to limit concurrent API requests
-        async with self.api_semaphore:
-            while True:
-                try:
-                    # Get a fresh client with a new API key for each attempt
-                    current_key = await self._refresh_client()
-                    
-                    # Use the appropriate model based on retries
-                    model_name = self._get_model_name(model_index)
-                    
-                    response = self.client.models.generate_content(
-                        model=model_name,
-                        contents=[prompt],
-                        config={
-                            'response_mime_type': 'application/json',
-                            'response_schema': list[structured_output],
-                        },
-                    )
-                    return response
-                    
-                except self.RATE_LIMIT_ERRORS as e:
-                    retry_count, model_index = await self._handle_rate_limit(
-                        current_key, retry_count, e, model_index
-                    )
-                    
-                except Exception as e:
-                    logger.error(f"Error generating structured output: {str(e)}")
-                    return None
-
-
 # Lock for accessing the global service
 _service_lock = asyncio.Lock()
 # Set up global service

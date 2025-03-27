@@ -402,7 +402,7 @@ Price: {price}
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
-def get_stock_information_by_year(symbol: str, year: Optional[int] = None) -> str:
+async def get_stock_information_by_year(symbol: str, year: Optional[int] = None) -> str:
     """
     Get stock information for a specific company and year.
     Args:
@@ -411,21 +411,15 @@ def get_stock_information_by_year(symbol: str, year: Optional[int] = None) -> st
     Returns:
         str: Formatted string with stock price, company overview, and financial statements 
     """
-    # Create a new thread to run the async function
-    def run_async_in_thread():
-        # Create a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        # Run the async function and get the result
-        result = loop.run_until_complete(get_stock_information(symbol, year=year))
-        loop.close()
-        return result
-    
-    # Execute the function in a new thread and wait for the result
-    with ThreadPoolExecutor() as executor:
-        future = executor.submit(run_async_in_thread)
-        return future.result()
+    # Directly call the async function
+    return await get_stock_information(symbol, year=year)
 
+def get_stock_information_by_year_sync(symbol: str, year: Optional[int] = None) -> str:
+    """
+    Synchronous wrapper for get_stock_information_by_year.
+    Use this function when calling from non-async code.
+    """
+    return asyncio.run(get_stock_information_by_year(symbol, year=year))
 
 # Initialize and clean up
 def initialize():
