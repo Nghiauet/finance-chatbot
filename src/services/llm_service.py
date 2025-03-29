@@ -171,6 +171,8 @@ class LLMService:
         model_index = 0
         response_stream = None
         operation_tools = operation_tools or []
+        empty_chunk_count = 0
+        max_empty_chunks = 3  # Maximum number of consecutive empty chunks before retrying
 
         # Get the stream with a semaphore - this is the only part that needs rate limiting
         while response_stream is None:
@@ -242,6 +244,8 @@ class LLMService:
         # Process the response stream
         try:
             logger.info("Processing response stream")
+            has_yielded_content = False
+            
             for chunk in response_stream:
                 # Handle chunks with function calls or None text
                 chunk_text = await self._process_function_call_chunk(chunk)
@@ -249,13 +253,45 @@ class LLMService:
                 if chunk_text is not None:
                     logger.debug(f"Received text chunk: {chunk_text}")
                     yield chunk_text
+                    has_yielded_content = True
+                    empty_chunk_count = 0  # Reset empty chunk counter
                 else:
                     logger.debug("Received chunk with no text content")
-                    # Skip yielding None to avoid breaking the stream
-                    # But we could yield an empty string if needed:
-                    # yield ""
+                    empty_chunk_count += 1
+                    
+                    # If we've received too many empty chunks and no content yet, retry
+                    if empty_chunk_count >= max_empty_chunks and not has_yielded_content:
+                        logger.warning(f"Received {empty_chunk_count} empty chunks. Retrying with a new stream.")
+                        # Break out of the loop to retry with a new stream
+                        break
                 
                 await asyncio.sleep(0)  # Yield control back to event loop
+            
+            # If we broke out of the loop due to empty chunks and haven't yielded content, retry
+            if empty_chunk_count >= max_empty_chunks and not has_yielded_content:
+                logger.info("Retrying with a new stream due to empty chunks")
+                # Increment retry count but stay on same model
+                retry_count += 1
+                
+                # If we've exceeded max retries, try next model
+                if retry_count >= self.max_retries:
+                    model_index += 1
+                    retry_count = 0
+                    
+                    # If we've tried all models, give up
+                    if model_index >= len(self.backup_models) + 1:
+                        logger.error("All models exhausted, unable to get non-empty response")
+                        yield None
+                        return
+                
+                # Recursive call to retry with new parameters
+                async for text in self.generate_content_with_tools(
+                    prompt=prompt,
+                    system_instruction=system_instruction,
+                    operation_tools=operation_tools
+                ):
+                    if text is not None:
+                        yield text
                 
         except Exception as e:
             logger.error(f"Error processing content stream with tools: {str(e)}")
