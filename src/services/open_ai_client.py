@@ -145,7 +145,7 @@ def main():
     # Optional base URL if using a proxy or custom deployment
     base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
-    model = "gemini-2.0-flash"
+    model = "gemini-2.5-flash-preview-04-17"
     
     # Initialize the client with the default model
     client = OpenAIClient(api_key=api_key, base_url=base_url, model=model)
