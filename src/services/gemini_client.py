@@ -204,6 +204,9 @@ class LLMService:
                         },
                         "system_instruction": system_instruction,
                         "response_mime_type": "text/plain",
+                        "thinking_config": {
+                            "thinking_budget": 24576
+                        }
                     }
                     
                     # Make initial call to get function/tool call
