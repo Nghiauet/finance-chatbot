@@ -6,7 +6,7 @@ import uuid
 from typing import Dict, List, Optional, AsyncGenerator
 
 from loguru import logger
-from src.services.llm_service import LLMService, get_llm_service_async
+from src.services.gemini_client import LLMService, get_llm_service_async
 from src.db.mongo_services import MongoService
 from src.core.config import llm_config
 from src.services.tools import get_stock_information_tools, search_engine

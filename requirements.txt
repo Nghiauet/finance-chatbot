@@ -8,7 +8,7 @@ langchain
 loguru
 tiktoken
 google-genai
-vnstock==3.2.2
+vnstock==3.2.3
 langchain_google_genai
 langchain_core
 langgraph

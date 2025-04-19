@@ -14,7 +14,7 @@ from typing import List, Optional, Dict, Any
 from loguru import logger
 from PyPDF2 import PdfReader, PdfWriter
 
-from src.services.llm_service import get_llm_service
+from services.gemini_client import get_llm_service
 from src.core.config import settings
 from src.core.config import llm_config
 # Constants

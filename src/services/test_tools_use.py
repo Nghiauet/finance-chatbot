@@ -3,7 +3,7 @@ import json
 from typing import Dict, Any, List
 
 # Import the LLM service
-from src.services.llm_service import get_llm_service_async
+from services.gemini_client import get_llm_service_async
 from src.services.tools.search_engine import search_information
 from src.services.tools.get_stock_information_tools import get_stock_information_by_year
 

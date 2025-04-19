@@ -203,6 +203,7 @@ class LLMService:
                             }
                         },
                         "system_instruction": system_instruction,
+                        "response_mime_type": "text/plain",
                     }
                     
                     # Make initial call to get function/tool call

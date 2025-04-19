@@ -60,7 +60,7 @@ class LLMConfig:
 
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
-        self.default_model = "gemini-2.5-pro-exp-03-25"
+        self.default_model = os.getenv("DEFAULT_MODEL")
         self.url = os.getenv("OPENAI_BASE_URL")
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.model = os.getenv("OPENAI_MODEL")
