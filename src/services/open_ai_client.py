@@ -140,7 +140,7 @@ def main():
     load_dotenv()
     
     # Get API key from environment variable
-    api_key = "AIzaSyDXjfFOZ0ygXUYmJStoJLQU7Tmr1wSoHEI"
+    api_key = os.getenv("OPENAI_API_KEY")
     
     # Optional base URL if using a proxy or custom deployment
     base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
