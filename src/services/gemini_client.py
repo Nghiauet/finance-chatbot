@@ -172,7 +172,7 @@ class LLMService:
         response_stream = None
         operation_tools = operation_tools or []
         empty_chunk_count = 0
-        max_empty_chunks = 3  # Maximum number of consecutive empty chunks before retrying
+        max_empty_chunks = 30 
 
         # Get the stream with a semaphore - this is the only part that needs rate limiting
         while response_stream is None:
@@ -209,24 +209,40 @@ class LLMService:
                         }
                     }
                     
-                    # Make initial call to get function/tool call
-                    response = self.client.models.generate_content(
-                        model=model_name,
-                        config=config_tools,
-                        contents=contents,
-                    )
-                    
-                    # Process tool calls if present
-                    if response.candidates and response.candidates[0].content.parts:
-                        for part in response.candidates[0].content.parts:
-                            if hasattr(part, 'function_call') and part.function_call:
-                                await self._process_tool_call(part.function_call, operation_tools, contents)
-                                
-                    # Get streaming response
+                    # Get initial streaming response
                     response_stream = self.client.models.generate_content_stream(
                         model=model_name,
                         config=config_tools,
                         contents=contents
+                    )
+                    
+                    # Process the initial response to handle any function calls
+                    processed_contents = contents.copy()
+                    has_function_calls = True
+                    
+                    # Continue processing function calls until there are no more
+                    while has_function_calls:
+                        has_function_calls = False
+                        
+                        # Make a non-streaming call to get function/tool calls
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            config=config_tools,
+                            contents=processed_contents,
+                        )
+                        
+                        # Process tool calls if present
+                        if response.candidates and response.candidates[0].content.parts:
+                            for part in response.candidates[0].content.parts:
+                                if hasattr(part, 'function_call') and part.function_call:
+                                    await self._process_tool_call(part.function_call, operation_tools, processed_contents)
+                                    has_function_calls = True  # Continue the loop if we found function calls
+                    
+                    # Get final streaming response with all function calls processed
+                    response_stream = self.client.models.generate_content_stream(
+                        model=model_name,
+                        config=config_tools,
+                        contents=processed_contents
                     )
                     
             except self.RATE_LIMIT_ERRORS as e:
