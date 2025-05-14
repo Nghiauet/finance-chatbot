@@ -32,17 +32,18 @@ def save_cache():
     try:
         with open(FINANCE_DATA_CACHE_FILE, "w") as f:
             json.dump(finance_data_cache, f, indent=4)
-        logger.info(f"Cache saved to {FINANCE_DATA_CACHE_FILE}")
+        logger.info(f"Cache saved")
     except Exception as e:
-        logger.error(f"Error saving cache: {e}")
+        logger.error(f"Cache save error: {e}")
+
 def save_finance_data_cache(finance_data_cache):
     """Save the finance data cache to file"""
     try:
         with open(FINANCE_DATA_CACHE_FILE, "w") as f:
             json.dump(finance_data_cache, f, indent=4)
-        logger.info(f"Cache saved to {FINANCE_DATA_CACHE_FILE}")
+        logger.info(f"Cache saved")
     except Exception as e:
-        logger.error(f"Error saving cache: {e}")
+        logger.error(f"Cache save error: {e}")
 
 # Stock data functions
 async def get_stock_price(symbol):
@@ -59,10 +60,10 @@ async def get_stock_price(symbol):
         )
         
         price = int(float(df.iloc[-1]["close"]) * 1000)
-        logger.info(f"Price for {symbol}: {price}")
+        logger.info(f"{symbol} price: {price}")
         return price
     except Exception as e:
-        logger.error(f"Error getting price for {symbol}: {e}")
+        logger.error(f"{symbol} price error: {e}")
         return None
 
 def format_number(number):
@@ -90,11 +91,11 @@ async def get_company_overview(symbol):
     
     # Check cache first
     if cache_key in finance_data_cache:
-        logger.debug(f"Using cached overview for {symbol}")
+        logger.debug(f"Cache hit: {symbol} overview")
         return finance_data_cache[cache_key]
     
     # Fetch fresh data
-    logger.info(f"Fetching overview for {symbol}")
+    logger.info(f"Fetching {symbol} overview")
     try:
         # Run blocking operation in a thread pool
         client = await asyncio.to_thread(lambda: Vnstock().stock(symbol=symbol, source="VCI"))
@@ -140,7 +141,7 @@ async def get_company_overview(symbol):
         
         return overview_data
     except Exception as e:
-        logger.error(f"Error getting overview for {symbol}: {e}")
+        logger.error(f"{symbol} overview error: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return "Error retrieving company overview."
@@ -232,11 +233,11 @@ async def get_financial_data(symbol, statement_type, year=None):
     
     # Check cache first
     if cache_key in finance_data_cache:
-        logger.debug(f"Using cached data for {cache_key}")
+        logger.debug(f"Cache hit: {cache_key}")
         return finance_data_cache[cache_key]
     
     # Fetch fresh data
-    logger.info(f"Fetching {statement_type} for {symbol}")
+    logger.info(f"Fetching {symbol} {statement_type}")
     try:
         # Run blocking operation in a thread pool
         client = await asyncio.to_thread(lambda: Vnstock().stock(symbol=symbol, source="VCI"))
@@ -306,7 +307,7 @@ async def get_financial_data(symbol, statement_type, year=None):
         return result
         
     except Exception as e:
-        logger.error(f"Error getting {statement_type} for {symbol}: {e}")
+        logger.error(f"{symbol} {statement_type} error: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return None
@@ -425,7 +426,7 @@ def get_stock_information_by_year_sync(symbol: str, year: Optional[int] = None) 
 def initialize():
     global finance_data_cache
     finance_data_cache = load_cache()
-    logger.info("Finance data cache loaded")
+    logger.info("Cache loaded")
 
 # Register exit handler to save cache
 atexit.register(save_cache)

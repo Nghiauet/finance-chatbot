@@ -157,14 +157,15 @@ if __name__ == "__main__":
 
         # Process queries concurrently
         async def process_query(session_id, query, delay=0):
-            print(f"Starting query for session {session_id}: {query}")
+            logger.info(f"Query [{session_id}]: {query[:30]}...")
             stream = await chatbot.automation_flow_stream(query, session_id)
+            response_length = 0
             async for chunk in stream:
                 # Simulate different consumer speeds
                 if delay:
                     await asyncio.sleep(delay)
-                print(f"Session {session_id} chunk: {chunk}")
-            print(f"Query for session {session_id} complete")
+                response_length += len(chunk)
+            logger.info(f"Session {session_id} complete - response size: {response_length} bytes")
         
         # Run all queries concurrently with different simulated consumer speeds
         await asyncio.gather(

@@ -209,7 +209,7 @@ async def search_and_extract(query: str, num_results: int = 3) -> List[Dict[str,
     
     # Filter out empty results
     valid_results = [r for r in results_with_content if r['content']]
-    logger.info(f"Extracted content from {len(valid_results)} out of {len(search_results)} search results for query: {query}")
+    logger.info(f"Extracted content for query: {query}")
     
     return valid_results
 
